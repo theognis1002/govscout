@@ -1,0 +1,20 @@
+[package]
+name = "govscout"
+version = "0.1.0"
+edition = "2021"
+description = "CLI tool to search and view federal contract opportunities from SAM.gov"
+license = "MIT"
+keywords = ["sam-gov", "federal", "contracts", "procurement", "cli"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.12", features = ["blocking", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dotenvy = "0.15"
+anyhow = "1"
+chrono = "0.4"
+tabled = "0.17"
+rusqlite = { version = "0.31", features = ["bundled"] }
+dirs = "5"
