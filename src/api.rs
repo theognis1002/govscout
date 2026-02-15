@@ -110,6 +110,7 @@ impl SamGovClient {
 
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(30))
+            .user_agent(format!("govscout/{}", env!("CARGO_PKG_VERSION")))
             .build()
             .context("Failed to build HTTP client")?;
 
@@ -153,11 +154,17 @@ impl SamGovClient {
             .get(BASE_URL)
             .query(&query)
             .send()
-            .context("Failed to connect to SAM.gov API")?;
+            .map_err(|e| {
+                let msg = e.to_string().replace(&self.api_key, "[REDACTED]");
+                anyhow::anyhow!("Failed to connect to SAM.gov API: {msg}")
+            })?;
 
         let status = response.status();
         if !status.is_success() {
-            let body = response.text().unwrap_or_default();
+            let body = response
+                .text()
+                .unwrap_or_default()
+                .replace(&self.api_key, "[REDACTED]");
             bail!("SAM.gov API returned {status}: {body}");
         }
 
@@ -188,5 +195,136 @@ impl SamGovClient {
             Some(mut opps) if !opps.is_empty() => Ok(opps.remove(0)),
             _ => bail!("No opportunity found with notice ID: {notice_id}"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_deserialize_full_opportunity() {
+        let json = r#"{
+            "noticeId": "ABC123",
+            "title": "Cloud Services",
+            "solicitationNumber": "SOL-001",
+            "department": "DOD",
+            "subTier": "Army",
+            "office": "ACC",
+            "fullParentPathName": "DOD.Army.ACC",
+            "organizationType": "DEPT/AGENCY",
+            "type": "Solicitation",
+            "baseType": "Presolicitation",
+            "postedDate": "01/15/2026",
+            "responseDeadline": "02/15/2026",
+            "archiveDate": "03/15/2026",
+            "naicsCode": "541512",
+            "classificationCode": "D302",
+            "setAside": "SBA",
+            "setAsideDescription": "Total Small Business",
+            "description": "<p>Need cloud</p>",
+            "uiLink": "https://sam.gov/opp/abc",
+            "active": "Yes",
+            "resourceLinks": ["https://example.com/doc.pdf"],
+            "award": {
+                "amount": "1000000",
+                "date": "2026-01-01",
+                "number": "AWD-001",
+                "awardee": {
+                    "name": "Acme Corp",
+                    "duns": "123456789",
+                    "ueiSAM": "UEI123"
+                }
+            },
+            "pointOfContact": [
+                {
+                    "type": "Primary",
+                    "fullName": "Jane Doe",
+                    "email": "jane@gov.gov",
+                    "phone": "555-1234",
+                    "title": "Contracting Officer"
+                }
+            ],
+            "placeOfPerformance": {
+                "state": {"code": "VA", "name": "Virginia"},
+                "city": {"code": "001", "name": "Arlington"},
+                "country": {"code": "US", "name": "United States"},
+                "zip": "22201"
+            }
+        }"#;
+
+        let opp: Opportunity = serde_json::from_str(json).unwrap();
+        assert_eq!(opp.notice_id.as_deref(), Some("ABC123"));
+        assert_eq!(opp.title.as_deref(), Some("Cloud Services"));
+        assert_eq!(opp.opp_type.as_deref(), Some("Solicitation"));
+        assert_eq!(opp.award.as_ref().unwrap().awardee.as_ref().unwrap().name.as_deref(), Some("Acme Corp"));
+        assert_eq!(opp.place_of_performance.as_ref().unwrap().state.as_ref().unwrap().code.as_deref(), Some("VA"));
+        assert_eq!(opp.point_of_contact.as_ref().unwrap()[0].contact_type.as_deref(), Some("Primary"));
+    }
+
+    #[test]
+    fn test_deserialize_minimal_opportunity() {
+        let json = "{}";
+        let opp: Opportunity = serde_json::from_str(json).unwrap();
+        assert!(opp.notice_id.is_none());
+        assert!(opp.title.is_none());
+        assert!(opp.award.is_none());
+        assert!(opp.point_of_contact.is_none());
+        assert!(opp.place_of_performance.is_none());
+    }
+
+    #[test]
+    fn test_deserialize_api_response() {
+        let json = r#"{
+            "totalRecords": 2,
+            "opportunitiesData": [
+                {"noticeId": "A1", "title": "First"},
+                {"noticeId": "A2", "title": "Second"}
+            ]
+        }"#;
+
+        let resp: ApiResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.total_records, Some(2));
+        let opps = resp.opportunities_data.unwrap();
+        assert_eq!(opps.len(), 2);
+        assert_eq!(opps[0].notice_id.as_deref(), Some("A1"));
+        assert_eq!(opps[1].title.as_deref(), Some("Second"));
+    }
+
+    #[test]
+    fn test_serialize_roundtrip() {
+        let opp = Opportunity {
+            notice_id: Some("RT-001".into()),
+            title: Some("Roundtrip Test".into()),
+            solicitation_number: None,
+            department: Some("DOE".into()),
+            sub_tier: None,
+            office: None,
+            full_parent_path_name: None,
+            organization_type: None,
+            opp_type: Some("Solicitation".into()),
+            base_type: None,
+            posted_date: Some("01/01/2026".into()),
+            response_deadline: None,
+            archive_date: None,
+            naics_code: None,
+            classification_code: None,
+            set_aside: None,
+            set_aside_description: None,
+            description: None,
+            ui_link: None,
+            resource_links: None,
+            award: None,
+            point_of_contact: None,
+            place_of_performance: None,
+            active: None,
+        };
+
+        let json = serde_json::to_string(&opp).unwrap();
+        let deserialized: Opportunity = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.notice_id, opp.notice_id);
+        assert_eq!(deserialized.title, opp.title);
+        assert_eq!(deserialized.opp_type, opp.opp_type);
+        assert_eq!(deserialized.posted_date, opp.posted_date);
     }
 }

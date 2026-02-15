@@ -79,7 +79,6 @@ enum Commands {
 fn main() -> Result<()> {
     dotenvy::dotenv().ok();
     let cli = Cli::parse();
-    let db = Database::open()?;
 
     match cli.command {
         Commands::Search {
@@ -115,6 +114,7 @@ fn main() -> Result<()> {
 
             let client = SamGovClient::new()?;
             let response = client.search(&params)?;
+            let mut db = Database::open()?;
             db.upsert_opportunities(&response)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&response)?);
@@ -126,6 +126,7 @@ fn main() -> Result<()> {
         Commands::Get { notice_id, json } => {
             let client = SamGovClient::new()?;
             let opp = client.get(&notice_id)?;
+            let mut db = Database::open()?;
             db.upsert_opportunity(&opp)?;
             if json {
                 println!("{}", serde_json::to_string_pretty(&opp)?);

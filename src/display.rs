@@ -252,3 +252,50 @@ fn strip_html(s: &str) -> String {
     }
     cleaned
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_short_string() {
+        assert_eq!(truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_exact_length() {
+        assert_eq!(truncate("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_long_string() {
+        let result = truncate("hello world", 5);
+        assert_eq!(result, "hell…");
+    }
+
+    #[test]
+    fn test_truncate_empty() {
+        assert_eq!(truncate("", 10), "");
+    }
+
+    #[test]
+    fn test_strip_html_tags() {
+        let input = "<p>Hello <b>world</b></p>";
+        let result = strip_html(input);
+        assert_eq!(result.trim(), "Hello world");
+    }
+
+    #[test]
+    fn test_strip_html_entities() {
+        let input = "&amp; &lt; &gt; &nbsp; &#39; &quot;";
+        let result = strip_html(input);
+        assert_eq!(result.trim(), "& < >   ' \"");
+    }
+
+    #[test]
+    fn test_strip_html_collapses_blank_lines() {
+        let input = "line1\n\n\n\nline2";
+        let result = strip_html(input);
+        assert_eq!(result, "line1\n\nline2\n");
+    }
+}

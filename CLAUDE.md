@@ -40,7 +40,15 @@ cargo clippy -- -D warnings  # Lint
 ```
 
 ## Testing
-No unit tests yet. Smoke test with:
+```bash
+cargo test                                     # Run all unit tests (18 tests)
+cargo test --lib                               # Unit tests only
+cargo test display::tests                      # display.rs tests only
+cargo test api::tests                          # api.rs tests only
+cargo test db::tests                           # db.rs tests only
+```
+
+Smoke test with:
 ```bash
 cargo build                                    # Must compile cleanly
 cargo run -- search                            # Smoke test with defaults
