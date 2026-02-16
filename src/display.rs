@@ -50,6 +50,45 @@ pub fn print_search_results(response: &ApiResponse) {
     println!("{table}");
 }
 
+pub fn print_search_results_paginated(response: &ApiResponse, total_saved: usize) {
+    let total = response.total_records.unwrap_or(0);
+    let opps = match &response.opportunities_data {
+        Some(opps) if !opps.is_empty() => opps,
+        _ => {
+            println!("No opportunities found.");
+            return;
+        }
+    };
+
+    println!(
+        "Showing first {} of {} total results ({} saved to database)\n",
+        opps.len(),
+        total,
+        total_saved,
+    );
+
+    let rows: Vec<SearchRow> = opps
+        .iter()
+        .map(|opp| SearchRow {
+            notice_id: opp.notice_id.as_deref().unwrap_or("—").to_string(),
+            title: truncate(opp.title.as_deref().unwrap_or("—"), 50),
+            opp_type: opp.base_type.as_deref().unwrap_or("—").to_string(),
+            posted: opp.posted_date.as_deref().unwrap_or("—").to_string(),
+            org: truncate(
+                opp.full_parent_path_name
+                    .as_deref()
+                    .or(opp.department.as_deref())
+                    .or(opp.sub_tier.as_deref())
+                    .unwrap_or("—"),
+                40,
+            ),
+        })
+        .collect();
+
+    let table = Table::new(rows).with(Style::rounded()).to_string();
+    println!("{table}");
+}
+
 pub fn print_opportunity_detail(opp: &Opportunity) {
     let field = |label: &str, value: Option<&str>| {
         if let Some(v) = value {

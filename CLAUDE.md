@@ -26,8 +26,9 @@ src/
 ## Build & Run
 ```bash
 cargo build
-cargo run -- search
-cargo run -- search --title "cloud" --naics 541512 --limit 5
+cargo run -- search                                    # Auto-paginate all results (saves to DB)
+cargo run -- search --title "cloud" --naics 541512     # Filtered search, all pages
+cargo run -- search --limit 5                          # Single-page, max 5 results
 cargo run -- get <NOTICE_ID>
 cargo run -- types
 ```
@@ -51,8 +52,8 @@ cargo test db::tests                           # db.rs tests only
 Smoke test with:
 ```bash
 cargo build                                    # Must compile cleanly
-cargo run -- search                            # Smoke test with defaults
-cargo run -- search --title "cloud" --limit 5  # Filtered search
+cargo run -- search                            # Auto-paginate all results
+cargo run -- search --title "cloud" --limit 5  # Single-page filtered search
 cargo run -- get <notice_id>                   # Detail view
 cargo run -- types                             # Reference table
 ```
@@ -72,5 +73,7 @@ See `.env.example`:
 - All response fields are `Option<T>` — API returns inconsistent fields
 - `--json` flag on `get` command serializes raw API response
 - Default date range: 30 days ago to today
+- `search` auto-paginates all results by default (1000/page); `--limit N` for single-page
+- DB defaults to `./govscout.db` in current directory (override with `GOVSCOUT_DB` env var)
 
 See also: [AGENTS.md](AGENTS.md) for agent-specific guidance.

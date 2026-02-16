@@ -21,9 +21,9 @@ struct Cli {
 enum Commands {
     /// Search for contract opportunities
     Search {
-        /// Number of results (1-1000)
-        #[arg(short, long, default_value_t = 10, value_parser = clap::value_parser!(u32).range(1..=1000))]
-        limit: u32,
+        /// Max results to fetch (omit to auto-paginate all results)
+        #[arg(short, long, value_parser = clap::value_parser!(u32).range(1..=1000))]
+        limit: Option<u32>,
 
         /// Filter by title keyword
         #[arg(short, long)]
@@ -52,10 +52,6 @@ enum Commands {
         /// Posted to date (MM/DD/YYYY)
         #[arg(long)]
         to: Option<String>,
-
-        /// Pagination offset
-        #[arg(long, default_value_t = 0)]
-        offset: u32,
 
         /// Output raw JSON
         #[arg(long)]
@@ -90,7 +86,6 @@ fn main() -> Result<()> {
             set_aside,
             from,
             to,
-            offset,
             json,
         } => {
             let now = Local::now();
@@ -100,8 +95,8 @@ fn main() -> Result<()> {
             let default_to = now.format("%m/%d/%Y").to_string();
 
             let params = SearchParams {
-                limit,
-                offset,
+                limit: limit.unwrap_or(1000),
+                offset: 0,
                 posted_from: from.unwrap_or(default_from),
                 posted_to: to.unwrap_or(default_to),
                 title,
@@ -113,13 +108,27 @@ fn main() -> Result<()> {
             };
 
             let client = SamGovClient::new()?;
-            let response = client.search(&params)?;
             let mut db = Database::open()?;
-            db.upsert_opportunities(&response)?;
-            if json {
-                println!("{}", serde_json::to_string_pretty(&response)?);
+
+            if let Some(_limit) = limit {
+                // Single-page fetch with explicit limit
+                let response = client.search(&params)?;
+                db.upsert_opportunities(&response)?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&response)?);
+                } else {
+                    display::print_search_results(&response);
+                }
             } else {
-                display::print_search_results(&response);
+                // Auto-paginate all results
+                let (first_page, total_saved) = client.search_all(&params, |page| {
+                    db.upsert_opportunities(page).ok();
+                })?;
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&first_page)?);
+                } else {
+                    display::print_search_results_paginated(&first_page, total_saved);
+                }
             }
         }
 

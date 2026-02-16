@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 const BASE_URL: &str = "https://api.sam.gov/opportunities/v2/search";
 
+#[derive(Clone)]
 pub struct SearchParams {
     pub limit: u32,
     pub offset: u32,
@@ -175,6 +176,63 @@ impl SamGovClient {
         Ok(api_response)
     }
 
+    /// Paginate through all results for the given search params.
+    /// Calls `on_page` with each page's response for incremental processing (e.g. DB upsert).
+    /// Returns the first page's response (for display) and the total number of records fetched.
+    pub fn search_all(
+        &self,
+        params: &SearchParams,
+        mut on_page: impl FnMut(&ApiResponse),
+    ) -> Result<(ApiResponse, usize)> {
+        const PAGE_SIZE: u32 = 1000;
+        let mut page_params = params.clone();
+        page_params.limit = PAGE_SIZE;
+        page_params.offset = 0;
+
+        let first_page = self.search(&page_params)?;
+        on_page(&first_page);
+
+        let total_records = first_page.total_records.unwrap_or(0) as usize;
+        let first_page_count = first_page
+            .opportunities_data
+            .as_ref()
+            .map(|o| o.len())
+            .unwrap_or(0);
+        let mut total_fetched = first_page_count;
+
+        while total_fetched < total_records && first_page_count > 0 {
+            page_params.offset += PAGE_SIZE;
+            let page_num = (page_params.offset / PAGE_SIZE) + 1;
+            eprint!(
+                "\rFetching page {} of {} ({} of {} saved)...",
+                page_num,
+                total_records.div_ceil(PAGE_SIZE as usize),
+                total_fetched,
+                total_records,
+            );
+
+            let page = self.search(&page_params)?;
+            on_page(&page);
+
+            let page_count = page
+                .opportunities_data
+                .as_ref()
+                .map(|o| o.len())
+                .unwrap_or(0);
+            total_fetched += page_count;
+
+            if page_count < PAGE_SIZE as usize {
+                break;
+            }
+        }
+
+        if total_records > PAGE_SIZE as usize {
+            eprintln!(); // newline after progress
+        }
+
+        Ok((first_page, total_fetched))
+    }
+
     pub fn get(&self, notice_id: &str) -> Result<Opportunity> {
         let params = SearchParams {
             limit: 1,
@@ -257,9 +315,34 @@ mod tests {
         assert_eq!(opp.notice_id.as_deref(), Some("ABC123"));
         assert_eq!(opp.title.as_deref(), Some("Cloud Services"));
         assert_eq!(opp.opp_type.as_deref(), Some("Solicitation"));
-        assert_eq!(opp.award.as_ref().unwrap().awardee.as_ref().unwrap().name.as_deref(), Some("Acme Corp"));
-        assert_eq!(opp.place_of_performance.as_ref().unwrap().state.as_ref().unwrap().code.as_deref(), Some("VA"));
-        assert_eq!(opp.point_of_contact.as_ref().unwrap()[0].contact_type.as_deref(), Some("Primary"));
+        assert_eq!(
+            opp.award
+                .as_ref()
+                .unwrap()
+                .awardee
+                .as_ref()
+                .unwrap()
+                .name
+                .as_deref(),
+            Some("Acme Corp")
+        );
+        assert_eq!(
+            opp.place_of_performance
+                .as_ref()
+                .unwrap()
+                .state
+                .as_ref()
+                .unwrap()
+                .code
+                .as_deref(),
+            Some("VA")
+        );
+        assert_eq!(
+            opp.point_of_contact.as_ref().unwrap()[0]
+                .contact_type
+                .as_deref(),
+            Some("Primary")
+        );
     }
 
     #[test]

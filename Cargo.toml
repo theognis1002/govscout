@@ -17,4 +17,3 @@ anyhow = "1"
 chrono = "0.4"
 tabled = "0.17"
 rusqlite = { version = "0.31", features = ["bundled"] }
-dirs = "5"

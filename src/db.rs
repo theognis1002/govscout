@@ -35,8 +35,7 @@ impl Database {
 
     #[cfg(test)]
     pub fn open_in_memory() -> Result<Self> {
-        let conn = Connection::open_in_memory()
-            .context("Failed to open in-memory database")?;
+        let conn = Connection::open_in_memory().context("Failed to open in-memory database")?;
 
         conn.execute_batch("PRAGMA foreign_keys=ON;")
             .context("Failed to set foreign_keys pragma")?;
@@ -312,10 +311,6 @@ fn resolve_db_path() -> Result<PathBuf> {
         return Ok(PathBuf::from(path));
     }
 
-    if let Some(data_dir) = dirs::data_dir() {
-        return Ok(data_dir.join("govscout").join("govscout.db"));
-    }
-
     Ok(PathBuf::from("govscout.db"))
 }
 
@@ -420,9 +415,18 @@ mod tests {
                 title: Some("CO".into()),
             }]),
             place_of_performance: Some(PlaceOfPerformance {
-                state: Some(PlaceValue { code: Some("VA".into()), name: Some("Virginia".into()) }),
-                city: Some(PlaceValue { code: Some("001".into()), name: Some("Arlington".into()) }),
-                country: Some(PlaceValue { code: Some("US".into()), name: Some("United States".into()) }),
+                state: Some(PlaceValue {
+                    code: Some("VA".into()),
+                    name: Some("Virginia".into()),
+                }),
+                city: Some(PlaceValue {
+                    code: Some("001".into()),
+                    name: Some("Arlington".into()),
+                }),
+                country: Some(PlaceValue {
+                    code: Some("US".into()),
+                    name: Some("United States".into()),
+                }),
                 zip: Some("22201".into()),
             }),
         };
@@ -431,19 +435,31 @@ mod tests {
 
         let title: String = db
             .conn
-            .query_row("SELECT title FROM opportunities WHERE notice_id = 'FULL-001'", [], |row| row.get(0))
+            .query_row(
+                "SELECT title FROM opportunities WHERE notice_id = 'FULL-001'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(title, "Full Test");
 
         let awardee: String = db
             .conn
-            .query_row("SELECT awardee_name FROM opportunities WHERE notice_id = 'FULL-001'", [], |row| row.get(0))
+            .query_row(
+                "SELECT awardee_name FROM opportunities WHERE notice_id = 'FULL-001'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(awardee, "Acme");
 
         let contact_count: i64 = db
             .conn
-            .query_row("SELECT COUNT(*) FROM contacts WHERE notice_id = 'FULL-001'", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM contacts WHERE notice_id = 'FULL-001'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(contact_count, 1);
     }
@@ -456,7 +472,11 @@ mod tests {
 
         let row_count: i64 = db
             .conn
-            .query_row("SELECT COUNT(*) FROM opportunities WHERE notice_id = 'MIN-001'", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM opportunities WHERE notice_id = 'MIN-001'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(row_count, 1);
     }
@@ -489,7 +509,11 @@ mod tests {
 
         let title: String = db
             .conn
-            .query_row("SELECT title FROM opportunities WHERE notice_id = 'UPD-001'", [], |row| row.get(0))
+            .query_row(
+                "SELECT title FROM opportunities WHERE notice_id = 'UPD-001'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(title, "Updated Title");
 
@@ -506,32 +530,60 @@ mod tests {
 
         let mut opp = make_opportunity("CON-001", "Contacts Test");
         opp.point_of_contact = Some(vec![
-            PointOfContact { contact_type: Some("Primary".into()), full_name: Some("Alice".into()), email: None, phone: None, title: None },
-            PointOfContact { contact_type: Some("Secondary".into()), full_name: Some("Bob".into()), email: None, phone: None, title: None },
+            PointOfContact {
+                contact_type: Some("Primary".into()),
+                full_name: Some("Alice".into()),
+                email: None,
+                phone: None,
+                title: None,
+            },
+            PointOfContact {
+                contact_type: Some("Secondary".into()),
+                full_name: Some("Bob".into()),
+                email: None,
+                phone: None,
+                title: None,
+            },
         ]);
         db.upsert_opportunity(&opp).unwrap();
 
         let count: i64 = db
             .conn
-            .query_row("SELECT COUNT(*) FROM contacts WHERE notice_id = 'CON-001'", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM contacts WHERE notice_id = 'CON-001'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(count, 2);
 
         // Re-upsert with only 1 contact
-        opp.point_of_contact = Some(vec![
-            PointOfContact { contact_type: Some("Primary".into()), full_name: Some("Charlie".into()), email: None, phone: None, title: None },
-        ]);
+        opp.point_of_contact = Some(vec![PointOfContact {
+            contact_type: Some("Primary".into()),
+            full_name: Some("Charlie".into()),
+            email: None,
+            phone: None,
+            title: None,
+        }]);
         db.upsert_opportunity(&opp).unwrap();
 
         let count: i64 = db
             .conn
-            .query_row("SELECT COUNT(*) FROM contacts WHERE notice_id = 'CON-001'", [], |row| row.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM contacts WHERE notice_id = 'CON-001'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(count, 1);
 
         let name: String = db
             .conn
-            .query_row("SELECT full_name FROM contacts WHERE notice_id = 'CON-001'", [], |row| row.get(0))
+            .query_row(
+                "SELECT full_name FROM contacts WHERE notice_id = 'CON-001'",
+                [],
+                |row| row.get(0),
+            )
             .unwrap();
         assert_eq!(name, "Charlie");
     }
