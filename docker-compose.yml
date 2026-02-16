@@ -1,0 +1,41 @@
+services:
+  backend:
+    image: rust:latest
+    working_dir: /app
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./src:/app/src
+      - ./Cargo.toml:/app/Cargo.toml
+      - ./Cargo.lock:/app/Cargo.lock
+      - ./govscout.db:/app/govscout.db
+      - cargo-target:/app/target
+      - cargo-registry:/usr/local/cargo/registry
+    environment:
+      - SAMGOV_API_KEY=${SAMGOV_API_KEY}
+      - GOVSCOUT_DB=/app/govscout.db
+      - PORT=3001
+    command: cargo run --bin govscout-server
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+
+  frontend:
+    image: oven/bun:1
+    working_dir: /app
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./web:/app
+      - frontend-node-modules:/app/node_modules
+    environment:
+      - API_URL=http://backend:3001
+    command: sh -c "bun install && bun dev --hostname 0.0.0.0"
+
+volumes:
+  cargo-target:
+  cargo-registry:
+  frontend-node-modules:

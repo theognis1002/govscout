@@ -1,6 +1,8 @@
 import type { ListResponse, DetailResponse, StatsResponse, SearchFiltersState } from "./types";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
+function getApiBase() {
+  return process.env.API_URL || "http://localhost:3001";
+}
 
 export async function fetchOpportunities(
   filters: SearchFiltersState = {}
@@ -18,7 +20,7 @@ export async function fetchOpportunities(
   if (filters.offset !== undefined) params.set("offset", filters.offset.toString());
 
   const qs = params.toString();
-  const res = await fetch(`${API_BASE}/api/opportunities${qs ? `?${qs}` : ""}`, {
+  const res = await fetch(`${getApiBase()}/api/opportunities${qs ? `?${qs}` : ""}`, {
     cache: "no-store",
   });
 
@@ -27,7 +29,7 @@ export async function fetchOpportunities(
 }
 
 export async function fetchOpportunity(id: string): Promise<DetailResponse> {
-  const res = await fetch(`${API_BASE}/api/opportunities/${encodeURIComponent(id)}`, {
+  const res = await fetch(`${getApiBase()}/api/opportunities/${encodeURIComponent(id)}`, {
     cache: "no-store",
   });
 
@@ -36,7 +38,7 @@ export async function fetchOpportunity(id: string): Promise<DetailResponse> {
 }
 
 export async function fetchStats(): Promise<StatsResponse> {
-  const res = await fetch(`${API_BASE}/api/stats`, {
+  const res = await fetch(`${getApiBase()}/api/stats`, {
     cache: "no-store",
   });
 

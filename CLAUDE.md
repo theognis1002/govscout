@@ -112,4 +112,15 @@ See `.env.example`:
 - `search` auto-paginates all results by default (1000/page); `--limit N` for single-page
 - DB defaults to `./govscout.db` in current directory (override with `GOVSCOUT_DB` env var)
 
+## Docker (dev with hot reload)
+```bash
+docker compose up                    # Start both services
+docker compose down                  # Stop
+```
+- Backend: `cargo-watch` auto-rebuilds on `src/` changes
+- Frontend: `bun dev` with source mounted, Next.js HMR works out of the box
+- Cargo build cache and `node_modules` are persisted in named volumes
+- SQLite DB uses `./govscout.db` from the project root (bind-mounted)
+- `SAMGOV_API_KEY` is read from `.env` in the project root
+
 See also: [AGENTS.md](AGENTS.md) for agent-specific guidance.

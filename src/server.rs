@@ -18,13 +18,19 @@ struct AppState {
 }
 
 fn open_db(state: &AppState) -> Result<Connection, StatusCode> {
-    let conn = Connection::open(&state.db_path).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let conn = Connection::open(&state.db_path).map_err(|e| {
+        eprintln!("Failed to open database: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     conn.execute_batch(
         "PRAGMA journal_mode=WAL;
          PRAGMA synchronous=NORMAL;
          PRAGMA busy_timeout=5000;",
     )
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    .map_err(|e| {
+        eprintln!("Failed to set pragmas: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     Ok(conn)
 }
 
