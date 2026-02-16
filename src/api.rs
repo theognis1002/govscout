@@ -1,8 +1,26 @@
 use anyhow::{bail, Context, Result};
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 const BASE_URL: &str = "https://api.sam.gov/opportunities/v2/search";
+
+#[derive(Debug)]
+pub struct RateLimited;
+
+impl fmt::Display for RateLimited {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "SAM.gov API rate limit exceeded (429)")
+    }
+}
+
+impl std::error::Error for RateLimited {}
+
+pub struct WindowResult {
+    pub records_fetched: usize,
+    pub api_calls: u32,
+    pub rate_limited: bool,
+}
 
 #[derive(Clone)]
 pub struct SearchParams {
@@ -161,6 +179,9 @@ impl SamGovClient {
             })?;
 
         let status = response.status();
+        if status.as_u16() == 429 {
+            return Err(anyhow::Error::new(RateLimited));
+        }
         if !status.is_success() {
             let body = response
                 .text()
@@ -231,6 +252,69 @@ impl SamGovClient {
         }
 
         Ok((first_page, total_fetched))
+    }
+
+    /// Fetch all pages for a date window, calling `on_page` per page.
+    /// Returns early on 429 with `rate_limited: true` instead of erroring.
+    pub fn search_window(
+        &self,
+        from: &str,
+        to: &str,
+        on_page: &mut impl FnMut(&ApiResponse),
+    ) -> Result<WindowResult> {
+        const PAGE_SIZE: u32 = 1000;
+        let mut offset: u32 = 0;
+        let mut total_fetched: usize = 0;
+        let mut api_calls: u32 = 0;
+
+        loop {
+            let params = SearchParams {
+                limit: PAGE_SIZE,
+                offset,
+                posted_from: from.to_string(),
+                posted_to: to.to_string(),
+                title: None,
+                ptype: None,
+                naics: None,
+                state: None,
+                set_aside: None,
+                notice_id: None,
+            };
+
+            api_calls += 1;
+            match self.search(&params) {
+                Ok(response) => {
+                    let page_count = response
+                        .opportunities_data
+                        .as_ref()
+                        .map(|o| o.len())
+                        .unwrap_or(0);
+                    let total_records = response.total_records.unwrap_or(0) as usize;
+
+                    on_page(&response);
+                    total_fetched += page_count;
+
+                    if total_fetched >= total_records || page_count < PAGE_SIZE as usize {
+                        break;
+                    }
+                    offset += PAGE_SIZE;
+                }
+                Err(e) if e.downcast_ref::<RateLimited>().is_some() => {
+                    return Ok(WindowResult {
+                        records_fetched: total_fetched,
+                        api_calls,
+                        rate_limited: true,
+                    });
+                }
+                Err(e) => return Err(e),
+            }
+        }
+
+        Ok(WindowResult {
+            records_fetched: total_fetched,
+            api_calls,
+            rate_limited: false,
+        })
     }
 
     pub fn get(&self, notice_id: &str) -> Result<Opportunity> {

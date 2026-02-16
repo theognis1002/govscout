@@ -416,9 +416,7 @@ async fn get_opportunity(
     }))
 }
 
-async fn get_stats(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<StatsResponse>, StatusCode> {
+async fn get_stats(State(state): State<Arc<AppState>>) -> Result<Json<StatsResponse>, StatusCode> {
     let conn = open_db(&state)?;
 
     let total_opportunities: u64 = conn

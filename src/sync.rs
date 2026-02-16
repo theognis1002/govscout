@@ -1,0 +1,165 @@
+use anyhow::Result;
+use chrono::{Local, NaiveDate};
+
+use crate::api::SamGovClient;
+use crate::db::Database;
+
+const WINDOW_DAYS: i64 = 3;
+const DATE_FMT: &str = "%m/%d/%Y";
+
+pub struct SyncSummary {
+    pub api_calls_used: u32,
+    pub records_synced: usize,
+    pub windows_completed: u32,
+    pub rate_limited: bool,
+    pub backfill_cursor: Option<String>,
+}
+
+pub fn run_sync(max_api_calls: u32, dry_run: bool) -> Result<SyncSummary> {
+    let client = SamGovClient::new()?;
+    let mut db = Database::open()?;
+
+    let today = Local::now().date_naive();
+    let mut api_calls_used: u32 = 0;
+    let mut records_synced: usize = 0;
+    let mut windows_completed: u32 = 0;
+    let mut rate_limited = false;
+
+    // Phase 1: Incremental sync (last WINDOW_DAYS days)
+    let incr_from = (today - chrono::Duration::days(WINDOW_DAYS))
+        .format(DATE_FMT)
+        .to_string();
+    let incr_to = today.format(DATE_FMT).to_string();
+
+    eprintln!("Incremental sync: {} to {}", incr_from, incr_to);
+
+    if dry_run {
+        eprintln!("  [dry-run] Would fetch window {} - {}", incr_from, incr_to);
+    } else {
+        let result = client.search_window(&incr_from, &incr_to, &mut |page| {
+            db.upsert_opportunities(page).ok();
+        })?;
+
+        api_calls_used += result.api_calls;
+        records_synced += result.records_fetched;
+        windows_completed += 1;
+
+        eprintln!(
+            "  Fetched {} records ({} API call{})",
+            result.records_fetched,
+            result.api_calls,
+            if result.api_calls == 1 { "" } else { "s" }
+        );
+
+        if result.rate_limited {
+            rate_limited = true;
+            eprintln!("  Rate limited during incremental sync, stopping.");
+            db.set_sync_state("last_sync", &today.format(DATE_FMT).to_string())?;
+            return Ok(SyncSummary {
+                api_calls_used,
+                records_synced,
+                windows_completed,
+                rate_limited,
+                backfill_cursor: db.get_sync_state("backfill_cursor")?,
+            });
+        }
+    }
+
+    // Phase 2: Backfill with remaining budget
+    let remaining = max_api_calls.saturating_sub(api_calls_used);
+    if remaining < 2 {
+        eprintln!("No API budget remaining for backfill.");
+    } else {
+        eprintln!("Backfill: {} API calls remaining", remaining);
+
+        // Determine backfill cursor
+        let cursor_str = db.get_sync_state("backfill_cursor")?;
+        let mut cursor = match cursor_str {
+            Some(ref s) => parse_date(s)?,
+            None => {
+                // Start from earliest posted_date in DB, or today - WINDOW_DAYS
+                match db.get_earliest_posted_date()? {
+                    Some(ref s) => parse_date(s)?,
+                    None => today - chrono::Duration::days(WINDOW_DAYS),
+                }
+            }
+        };
+
+        while api_calls_used + 2 <= max_api_calls {
+            let window_to = cursor;
+            let window_from = cursor - chrono::Duration::days(WINDOW_DAYS);
+
+            let from_str = window_from.format(DATE_FMT).to_string();
+            let to_str = window_to.format(DATE_FMT).to_string();
+
+            eprintln!("  Backfill window: {} to {}", from_str, to_str);
+
+            if dry_run {
+                eprintln!("    [dry-run] Would fetch this window");
+                windows_completed += 1;
+                api_calls_used += 1; // estimate 1 call per window for budget tracking
+                cursor = window_from;
+                continue;
+            }
+
+            let result = client.search_window(&from_str, &to_str, &mut |page| {
+                db.upsert_opportunities(page).ok();
+            })?;
+
+            api_calls_used += result.api_calls;
+            records_synced += result.records_fetched;
+            windows_completed += 1;
+
+            eprintln!(
+                "    {} records ({} API call{})",
+                result.records_fetched,
+                result.api_calls,
+                if result.api_calls == 1 { "" } else { "s" }
+            );
+
+            cursor = window_from;
+            db.set_sync_state("backfill_cursor", &cursor.format(DATE_FMT).to_string())?;
+
+            if result.rate_limited {
+                rate_limited = true;
+                eprintln!("  Rate limited, stopping backfill.");
+                break;
+            }
+        }
+    }
+
+    if !dry_run {
+        db.set_sync_state("last_sync", &today.format(DATE_FMT).to_string())?;
+    }
+
+    let final_cursor = db.get_sync_state("backfill_cursor")?;
+
+    Ok(SyncSummary {
+        api_calls_used,
+        records_synced,
+        windows_completed,
+        rate_limited,
+        backfill_cursor: final_cursor,
+    })
+}
+
+fn parse_date(s: &str) -> Result<NaiveDate> {
+    NaiveDate::parse_from_str(s, DATE_FMT)
+        .map_err(|e| anyhow::anyhow!("Failed to parse date '{}': {}", s, e))
+}
+
+pub fn print_summary(summary: &SyncSummary) {
+    eprintln!();
+    eprintln!("=== Sync Summary ===");
+    eprintln!("  API calls used:     {}", summary.api_calls_used);
+    eprintln!("  Records synced:     {}", summary.records_synced);
+    eprintln!("  Windows completed:  {}", summary.windows_completed);
+    if let Some(ref cursor) = summary.backfill_cursor {
+        eprintln!("  Backfill cursor:    {}", cursor);
+    }
+    if summary.rate_limited {
+        eprintln!("  Status:             Rate limited (will resume next run)");
+    } else {
+        eprintln!("  Status:             Complete");
+    }
+}

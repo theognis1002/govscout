@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use rusqlite::Connection;
+use rusqlite::OptionalExtension;
 use std::path::PathBuf;
 
 use crate::api::{ApiResponse, Opportunity};
@@ -107,11 +108,54 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_opp_active ON opportunities(active);
                 CREATE INDEX IF NOT EXISTS idx_opp_pop_state ON opportunities(pop_state_code);
                 CREATE INDEX IF NOT EXISTS idx_opp_naics_type ON opportunities(naics_code, opp_type);
-                CREATE INDEX IF NOT EXISTS idx_contacts_notice ON contacts(notice_id);",
+                CREATE INDEX IF NOT EXISTS idx_contacts_notice ON contacts(notice_id);
+
+                CREATE TABLE IF NOT EXISTS sync_state (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );",
             )
             .context("Failed to initialize database schema")?;
 
         Ok(())
+    }
+
+    pub fn get_sync_state(&self, key: &str) -> Result<Option<String>> {
+        let result = self
+            .conn
+            .query_row(
+                "SELECT value FROM sync_state WHERE key = ?1",
+                rusqlite::params![key],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("Failed to query sync_state")?;
+        Ok(result)
+    }
+
+    pub fn set_sync_state(&self, key: &str, value: &str) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO sync_state (key, value) VALUES (?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                rusqlite::params![key, value],
+            )
+            .context("Failed to set sync_state")?;
+        Ok(())
+    }
+
+    pub fn get_earliest_posted_date(&self) -> Result<Option<String>> {
+        let result = self
+            .conn
+            .query_row(
+                "SELECT MIN(posted_date) FROM opportunities WHERE posted_date IS NOT NULL",
+                [],
+                |row| row.get(0),
+            )
+            .optional()
+            .context("Failed to query earliest posted_date")?;
+        // optional() wraps the row, but the value itself can be NULL
+        Ok(result.flatten())
     }
 
     pub fn upsert_opportunity(&mut self, opp: &Opportunity) -> Result<()> {
@@ -586,6 +630,43 @@ mod tests {
             )
             .unwrap();
         assert_eq!(name, "Charlie");
+    }
+
+    #[test]
+    fn test_sync_state_get_set() {
+        let db = Database::open_in_memory().unwrap();
+        assert_eq!(db.get_sync_state("backfill_cursor").unwrap(), None);
+
+        db.set_sync_state("backfill_cursor", "01/01/2025").unwrap();
+        assert_eq!(
+            db.get_sync_state("backfill_cursor").unwrap(),
+            Some("01/01/2025".to_string())
+        );
+
+        db.set_sync_state("backfill_cursor", "12/01/2024").unwrap();
+        assert_eq!(
+            db.get_sync_state("backfill_cursor").unwrap(),
+            Some("12/01/2024".to_string())
+        );
+    }
+
+    #[test]
+    fn test_get_earliest_posted_date() {
+        let mut db = Database::open_in_memory().unwrap();
+        assert_eq!(db.get_earliest_posted_date().unwrap(), None);
+
+        let mut opp1 = make_opportunity("E-001", "First");
+        opp1.posted_date = Some("03/15/2025".into());
+        db.upsert_opportunity(&opp1).unwrap();
+
+        let mut opp2 = make_opportunity("E-002", "Second");
+        opp2.posted_date = Some("01/10/2025".into());
+        db.upsert_opportunity(&opp2).unwrap();
+
+        assert_eq!(
+            db.get_earliest_posted_date().unwrap(),
+            Some("01/10/2025".to_string())
+        );
     }
 
     #[test]

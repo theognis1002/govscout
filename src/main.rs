@@ -67,6 +67,17 @@ enum Commands {
 
     /// Print opportunity type and set-aside reference codes
     Types,
+
+    /// Sync opportunities: incremental update + historical backfill
+    Sync {
+        /// Max API calls for this run
+        #[arg(long, default_value = "18")]
+        max_calls: u32,
+
+        /// Show what would be fetched without making API calls
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 fn main() -> Result<()> {
@@ -143,6 +154,11 @@ fn main() -> Result<()> {
 
         Commands::Types => {
             display::print_types();
+        }
+
+        Commands::Sync { max_calls, dry_run } => {
+            let summary = govscout_lib::sync::run_sync(max_calls, dry_run)?;
+            govscout_lib::sync::print_summary(&summary);
         }
     }
 
