@@ -12,15 +12,34 @@ Rust CLI tool that queries the SAM.gov Opportunities API v2 to search and view f
 - Dates: chrono
 - Errors: anyhow
 - Env: dotenvy
+- API server: axum, tokio, tower-http (CORS)
+- Frontend: Next.js (App Router), TypeScript, Tailwind CSS, shadcn/ui (neo-brutalism theme), bun
 
 ## Architecture
 
 ```
 src/
 ├── main.rs      # CLI definition (clap derive), subcommand routing, date defaults
+├── lib.rs       # Library crate re-exporting modules
 ├── api.rs       # SamGovClient, SearchParams, API response types (serde)
 ├── db.rs        # SQLite persistence (rusqlite), schema init, upserts
-└── display.rs   # Output formatting (tabled tables, detail views, reference tables)
+├── display.rs   # Output formatting (tabled tables, detail views, reference tables)
+└── server.rs    # Axum REST API server (read-only SQLite access)
+
+web/                 # Next.js frontend (bun)
+├── app/
+│   ├── layout.tsx
+│   ├── page.tsx                    # Opportunities list + filters + pagination
+│   └── opportunities/[id]/page.tsx # Detail view
+├── components/
+│   ├── ui/                         # shadcn neo-brutalism components
+│   ├── opportunity-card.tsx
+│   ├── opportunity-detail.tsx
+│   ├── search-filters.tsx
+│   └── pagination.tsx
+└── lib/
+    ├── api.ts                      # Typed fetch client
+    └── types.ts                    # TS types matching Rust API DTOs
 ```
 
 ## Build & Run
@@ -32,6 +51,21 @@ cargo run -- search --limit 5                          # Single-page, max 5 resu
 cargo run -- get <NOTICE_ID>
 cargo run -- types
 ```
+
+## Web Development
+```bash
+# Terminal 1: Rust API server (port 3001)
+cargo run --bin govscout-server
+
+# Terminal 2: Next.js frontend (port 3000)
+cd web && bun dev
+```
+
+API endpoints:
+- `GET /api/opportunities` — paginated list with query filters (search, naics_code, opp_type, set_aside, state, department, active_only, limit, offset)
+- `GET /api/opportunities/:id` — full detail + contacts
+- `GET /api/stats` — filter options with counts
+- `GET /health` — health check
 
 ## Lint & Format
 ```bash
@@ -60,7 +94,9 @@ cargo run -- types                             # Reference table
 
 ## Environment Variables
 See `.env.example`:
-- `SAMGOV_API_KEY` — SAM.gov API key (required)
+- `SAMGOV_API_KEY` — SAM.gov API key (required for CLI)
+- `GOVSCOUT_DB` — SQLite database path (default: `./govscout.db`)
+- `PORT` — API server port (default: `3001`)
 
 ## API Details
 - Single endpoint: `GET https://api.sam.gov/opportunities/v2/search`

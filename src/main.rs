@@ -1,13 +1,10 @@
-mod api;
-mod db;
-mod display;
-
 use anyhow::Result;
 use chrono::Local;
 use clap::{Parser, Subcommand};
 
-use api::{SamGovClient, SearchParams};
-use db::Database;
+use govscout_lib::api::{SamGovClient, SearchParams};
+use govscout_lib::db::Database;
+use govscout_lib::display;
 
 /// GovScout — Search and view federal contract opportunities from SAM.gov
 #[derive(Parser)]

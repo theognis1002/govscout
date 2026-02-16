@@ -7,6 +7,18 @@ license = "MIT"
 keywords = ["sam-gov", "federal", "contracts", "procurement", "cli"]
 categories = ["command-line-utilities"]
 
+[lib]
+name = "govscout_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "govscout"
+path = "src/main.rs"
+
+[[bin]]
+name = "govscout-server"
+path = "src/server.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 reqwest = { version = "0.12", features = ["blocking", "json"] }
@@ -17,3 +29,6 @@ anyhow = "1"
 chrono = "0.4"
 tabled = "0.17"
 rusqlite = { version = "0.31", features = ["bundled"] }
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors"] }
