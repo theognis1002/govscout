@@ -93,7 +93,7 @@ pub fn run_sync(max_api_calls: u32, dry_run: bool, from_override: Option<&str>) 
         };
 
         // If --from is provided, stop backfilling once we reach that date
-        let backfill_floor = from_override.map(|s| parse_date(s)).transpose()?;
+        let backfill_floor = from_override.map(parse_date).transpose()?;
 
         while api_calls_used + 2 <= max_api_calls {
             if let Some(floor) = backfill_floor {

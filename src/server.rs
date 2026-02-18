@@ -74,6 +74,7 @@ struct OpportunityRow {
     naics_code: Option<String>,
     set_aside: Option<String>,
     set_aside_description: Option<String>,
+    description: Option<String>,
     active: Option<String>,
     ui_link: Option<String>,
     pop_state_code: Option<String>,
@@ -192,6 +193,19 @@ impl QueryBuilder {
         self.params.push(value.to_string());
     }
 
+    fn add_in(&mut self, column: &str, values: &[&str]) {
+        let placeholders: Vec<String> = values
+            .iter()
+            .map(|v| {
+                let idx = self.params.len() + 1;
+                self.params.push(v.to_string());
+                format!("?{idx}")
+            })
+            .collect();
+        self.clauses
+            .push(format!("{column} IN ({})", placeholders.join(", ")));
+    }
+
     fn add_literal(&mut self, clause: &str) {
         self.clauses.push(clause.to_string());
     }
@@ -239,7 +253,12 @@ async fn list_opportunities(
         }
     }
     if let Some(ref v) = params.naics_code {
-        qb.add_eq("naics_code", v);
+        if v.contains(',') {
+            let codes: Vec<&str> = v.split(',').map(|s| s.trim()).collect();
+            qb.add_in("naics_code", &codes);
+        } else {
+            qb.add_eq("naics_code", v);
+        }
     }
     if let Some(ref v) = params.opp_type {
         qb.add_eq("opp_type", v);
@@ -280,7 +299,8 @@ async fn list_opportunities(
     let data_sql = format!(
         "SELECT notice_id, title, solicitation_number, department, sub_tier, office,
                 opp_type, base_type, posted_date, response_deadline, naics_code,
-                set_aside, set_aside_description, active, ui_link, pop_state_code, pop_state_name
+                set_aside, set_aside_description, active, ui_link, pop_state_code, pop_state_name,
+                description
          FROM opportunities {where_sql}
          ORDER BY posted_date DESC
          LIMIT ?{li} OFFSET ?{oi}"
@@ -312,6 +332,7 @@ async fn list_opportunities(
                 naics_code: row.get(10)?,
                 set_aside: row.get(11)?,
                 set_aside_description: row.get(12)?,
+                description: row.get(17)?,
                 active: row.get(13)?,
                 ui_link: row.get(14)?,
                 pop_state_code: row.get(15)?,

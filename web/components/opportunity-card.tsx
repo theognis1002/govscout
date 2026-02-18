@@ -20,13 +20,18 @@ export function OpportunityCard({ opp }: { opp: OpportunityRow }) {
             {opp.title ?? "Untitled"}
           </CardTitle>
           {opp.active === "Yes" && (
-            <Badge variant="default" className="shrink-0">Active</Badge>
+            <Badge variant="default" className="shrink-0 bg-green-600 text-white">Active</Badge>
           )}
         </div>
         <p className="text-sm text-muted-foreground">
           {opp.department ?? "—"}
           {opp.sub_tier ? ` / ${opp.sub_tier}` : ""}
         </p>
+        {opp.description && (
+          <p className="text-sm text-muted-foreground line-clamp-2 mt-1">
+            {opp.description}
+          </p>
+        )}
       </CardHeader>
       <CardContent>
         <div className="flex flex-wrap gap-2 text-sm">

@@ -12,6 +12,7 @@ export interface OpportunityRow {
   naics_code: string | null;
   set_aside: string | null;
   set_aside_description: string | null;
+  description: string | null;
   active: string | null;
   ui_link: string | null;
   pop_state_code: string | null;

@@ -2,7 +2,9 @@ import { Suspense } from "react";
 import { fetchOpportunities, fetchStats } from "@/lib/api";
 import { OpportunityCard } from "@/components/opportunity-card";
 import { SearchFilters } from "@/components/search-filters";
+import { FilterPresetBar } from "@/components/filter-preset-bar";
 import { Pagination } from "@/components/pagination";
+import { DEFAULT_PRESET } from "@/lib/presets";
 
 interface PageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -10,16 +12,21 @@ interface PageProps {
 
 export default async function Home({ searchParams }: PageProps) {
   const params = await searchParams;
+
+  // If no URL params at all, apply default preset filters
+  const hasParams = Object.keys(params).length > 0;
+  const effectiveParams = hasParams ? params : DEFAULT_PRESET.filters;
+
   const filters = {
-    search: typeof params.search === "string" ? params.search : undefined,
-    naics_code: typeof params.naics_code === "string" ? params.naics_code : undefined,
-    opp_type: typeof params.opp_type === "string" ? params.opp_type : undefined,
-    set_aside: typeof params.set_aside === "string" ? params.set_aside : undefined,
-    state: typeof params.state === "string" ? params.state : undefined,
-    department: typeof params.department === "string" ? params.department : undefined,
-    active_only: params.active_only === "true",
+    search: typeof effectiveParams.search === "string" ? effectiveParams.search : undefined,
+    naics_code: typeof effectiveParams.naics_code === "string" ? effectiveParams.naics_code : undefined,
+    opp_type: typeof effectiveParams.opp_type === "string" ? effectiveParams.opp_type : undefined,
+    set_aside: typeof effectiveParams.set_aside === "string" ? effectiveParams.set_aside : undefined,
+    state: typeof effectiveParams.state === "string" ? effectiveParams.state : undefined,
+    department: typeof effectiveParams.department === "string" ? effectiveParams.department : undefined,
+    active_only: effectiveParams.active_only === "true",
     limit: 25,
-    offset: typeof params.offset === "string" ? parseInt(params.offset, 10) || 0 : 0,
+    offset: typeof effectiveParams.offset === "string" ? parseInt(effectiveParams.offset, 10) || 0 : 0,
   };
 
   const [data, stats] = await Promise.all([
@@ -44,6 +51,10 @@ export default async function Home({ searchParams }: PageProps) {
         </aside>
 
         <main className="flex-1 space-y-4">
+          <Suspense fallback={null}>
+            <FilterPresetBar />
+          </Suspense>
+
           <div className="flex items-center justify-between">
             <p className="text-sm text-muted-foreground">
               {data.total.toLocaleString()} results
