@@ -4,7 +4,8 @@ use chrono::{Local, NaiveDate};
 use crate::api::SamGovClient;
 use crate::db::Database;
 
-const WINDOW_DAYS: i64 = 3;
+const BACKFILL_WINDOW_DAYS: i64 = 90;
+const INCREMENTAL_DAYS: i64 = 3;
 const DATE_FMT: &str = "%m/%d/%Y";
 
 pub struct SyncSummary {
@@ -15,7 +16,7 @@ pub struct SyncSummary {
     pub backfill_cursor: Option<String>,
 }
 
-pub fn run_sync(max_api_calls: u32, dry_run: bool) -> Result<SyncSummary> {
+pub fn run_sync(max_api_calls: u32, dry_run: bool, from_override: Option<&str>) -> Result<SyncSummary> {
     let client = SamGovClient::new()?;
     let mut db = Database::open()?;
 
@@ -25,8 +26,8 @@ pub fn run_sync(max_api_calls: u32, dry_run: bool) -> Result<SyncSummary> {
     let mut windows_completed: u32 = 0;
     let mut rate_limited = false;
 
-    // Phase 1: Incremental sync (last WINDOW_DAYS days)
-    let incr_from = (today - chrono::Duration::days(WINDOW_DAYS))
+    // Phase 1: Incremental sync (last INCREMENTAL_DAYS days)
+    let incr_from = (today - chrono::Duration::days(INCREMENTAL_DAYS))
         .format(DATE_FMT)
         .to_string();
     let incr_to = today.format(DATE_FMT).to_string();
@@ -73,21 +74,37 @@ pub fn run_sync(max_api_calls: u32, dry_run: bool) -> Result<SyncSummary> {
         eprintln!("Backfill: {} API calls remaining", remaining);
 
         // Determine backfill cursor
-        let cursor_str = db.get_sync_state("backfill_cursor")?;
-        let mut cursor = match cursor_str {
-            Some(ref s) => parse_date(s)?,
-            None => {
-                // Start from earliest posted_date in DB, or today - WINDOW_DAYS
-                match db.get_earliest_posted_date()? {
-                    Some(ref s) => parse_date(s)?,
-                    None => today - chrono::Duration::days(WINDOW_DAYS),
+        let mut cursor = if let Some(from_str) = from_override {
+            eprintln!("  Using --from override: {}", from_str);
+            // --from specifies the target start date; we backfill backwards from today toward it
+            // So cursor starts at today minus incremental window (to avoid overlap with phase 1)
+            today - chrono::Duration::days(INCREMENTAL_DAYS)
+        } else {
+            let cursor_str = db.get_sync_state("backfill_cursor")?;
+            match cursor_str {
+                Some(ref s) => parse_date(s)?,
+                None => {
+                    match db.get_earliest_posted_date()? {
+                        Some(ref s) => parse_date(s)?,
+                        None => today - chrono::Duration::days(INCREMENTAL_DAYS),
+                    }
                 }
             }
         };
 
+        // If --from is provided, stop backfilling once we reach that date
+        let backfill_floor = from_override.map(|s| parse_date(s)).transpose()?;
+
         while api_calls_used + 2 <= max_api_calls {
+            if let Some(floor) = backfill_floor {
+                if cursor <= floor {
+                    eprintln!("  Reached --from date {}, stopping backfill.", floor.format(DATE_FMT));
+                    break;
+                }
+            }
+
             let window_to = cursor;
-            let window_from = cursor - chrono::Duration::days(WINDOW_DAYS);
+            let window_from = cursor - chrono::Duration::days(BACKFILL_WINDOW_DAYS);
 
             let from_str = window_from.format(DATE_FMT).to_string();
             let to_str = window_to.format(DATE_FMT).to_string();

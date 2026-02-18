@@ -49,14 +49,15 @@ web/                 # Next.js frontend (bun)
 
 ```bash
 cargo build
-cargo run -- search                                    # Auto-paginate all results (saves to DB)
-cargo run -- search --title "cloud" --naics 541512     # Filtered search, all pages
-cargo run -- search --limit 5                          # Single-page, max 5 results
-cargo run -- get <NOTICE_ID>
-cargo run -- types
-cargo run -- sync                              # Daily sync (incremental + backfill)
-cargo run -- sync --dry-run                    # Preview what would be fetched
-cargo run -- sync --max-calls 5               # Limit API calls for this run
+cargo run --bin govscout -- search                                    # Auto-paginate all results (saves to DB)
+cargo run --bin govscout -- search --title "cloud" --naics 541512     # Filtered search, all pages
+cargo run --bin govscout -- search --limit 5                          # Single-page, max 5 results
+cargo run --bin govscout -- get <NOTICE_ID>
+cargo run --bin govscout -- types
+cargo run --bin govscout -- sync                              # Daily sync (incremental + backfill)
+cargo run --bin govscout -- sync --dry-run                    # Preview what would be fetched
+cargo run --bin govscout -- sync --max-calls 5               # Limit API calls for this run
+cargo run --bin govscout -- sync --from 01/01/2015            # Backfill from today toward a specific date
 ```
 
 ## Web Development
@@ -98,10 +99,10 @@ Smoke test with:
 
 ```bash
 cargo build                                    # Must compile cleanly
-cargo run -- search                            # Auto-paginate all results
-cargo run -- search --title "cloud" --limit 5  # Single-page filtered search
-cargo run -- get <notice_id>                   # Detail view
-cargo run -- types                             # Reference table
+cargo run --bin govscout -- search                            # Auto-paginate all results
+cargo run --bin govscout -- search --title "cloud" --limit 5  # Single-page filtered search
+cargo run --bin govscout -- get <notice_id>                   # Detail view
+cargo run --bin govscout -- types                             # Reference table
 ```
 
 ## Environment Variables
@@ -118,6 +119,7 @@ See `.env.example`:
 - Auth: `api_key` query parameter
 - Date format: `MM/DD/YYYY`
 - Key query params: `limit`, `offset`, `postedFrom`, `postedTo`, `title`, `ptype`, `ncode`, `state`, `typeOfSetAside`, `noticeid`
+- **Rate limiting**: SAM.gov enforces aggressive rate limits (~20 API calls/day per key). This is a hard platform constraint — do NOT increase `--max-calls` above 18 or attempt to work around rate limits. The sync command is carefully budgeted to stay within these limits (1-2 calls for incremental sync, remainder for backfill). Exceeding the limit results in 429 responses and temporary lockout.
 
 ## Key Design Decisions
 
@@ -133,7 +135,7 @@ See `.env.example`:
 The `sync` command is designed for daily cron use:
 
 - **Incremental**: fetches last 3 days of opportunities (~1 API call) to stay current
-- **Backfill**: uses remaining API budget to fetch historical data in 3-day windows going backwards
+- **Backfill**: uses remaining API budget to fetch historical data in 90-day windows going backwards (~4 years/run)
 - **Rate limit safe**: stops gracefully on 429, saves progress, resumes next run
 - **Steady state**: ~1-2 API calls/day once backfill is complete
 

@@ -77,6 +77,10 @@ enum Commands {
         /// Show what would be fetched without making API calls
         #[arg(long)]
         dry_run: bool,
+
+        /// Override backfill start date (MM/DD/YYYY) — backfill from today toward this date
+        #[arg(long)]
+        from: Option<String>,
     },
 }
 
@@ -156,8 +160,8 @@ fn main() -> Result<()> {
             display::print_types();
         }
 
-        Commands::Sync { max_calls, dry_run } => {
-            let summary = govscout_lib::sync::run_sync(max_calls, dry_run)?;
+        Commands::Sync { max_calls, dry_run, from } => {
+            let summary = govscout_lib::sync::run_sync(max_calls, dry_run, from.as_deref())?;
             govscout_lib::sync::print_summary(&summary);
         }
     }
