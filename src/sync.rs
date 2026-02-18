@@ -16,7 +16,11 @@ pub struct SyncSummary {
     pub backfill_cursor: Option<String>,
 }
 
-pub fn run_sync(max_api_calls: u32, dry_run: bool, from_override: Option<&str>) -> Result<SyncSummary> {
+pub fn run_sync(
+    max_api_calls: u32,
+    dry_run: bool,
+    from_override: Option<&str>,
+) -> Result<SyncSummary> {
     let client = SamGovClient::new()?;
     let mut db = Database::open()?;
 
@@ -38,8 +42,22 @@ pub fn run_sync(max_api_calls: u32, dry_run: bool, from_override: Option<&str>) 
         eprintln!("  [dry-run] Would fetch window {} - {}", incr_from, incr_to);
     } else {
         let result = client.search_window(&incr_from, &incr_to, &mut |page| {
-            db.upsert_opportunities(page).ok();
+            if let Err(e) = db.upsert_opportunities(page) {
+                eprintln!("DB upsert error: {e}");
+            }
         })?;
+
+        if let Err(e) = db.log_api_call(
+            "incremental",
+            Some(&incr_from),
+            Some(&incr_to),
+            result.api_calls,
+            result.records_fetched,
+            result.rate_limited,
+            None,
+        ) {
+            eprintln!("Failed to log API call: {e}");
+        }
 
         api_calls_used += result.api_calls;
         records_synced += result.records_fetched;
@@ -83,12 +101,10 @@ pub fn run_sync(max_api_calls: u32, dry_run: bool, from_override: Option<&str>) 
             let cursor_str = db.get_sync_state("backfill_cursor")?;
             match cursor_str {
                 Some(ref s) => parse_date(s)?,
-                None => {
-                    match db.get_earliest_posted_date()? {
-                        Some(ref s) => parse_date(s)?,
-                        None => today - chrono::Duration::days(INCREMENTAL_DAYS),
-                    }
-                }
+                None => match db.get_earliest_posted_date()? {
+                    Some(ref s) => parse_date(s)?,
+                    None => today - chrono::Duration::days(INCREMENTAL_DAYS),
+                },
             }
         };
 
@@ -98,7 +114,10 @@ pub fn run_sync(max_api_calls: u32, dry_run: bool, from_override: Option<&str>) 
         while api_calls_used + 2 <= max_api_calls {
             if let Some(floor) = backfill_floor {
                 if cursor <= floor {
-                    eprintln!("  Reached --from date {}, stopping backfill.", floor.format(DATE_FMT));
+                    eprintln!(
+                        "  Reached --from date {}, stopping backfill.",
+                        floor.format(DATE_FMT)
+                    );
                     break;
                 }
             }
@@ -120,8 +139,22 @@ pub fn run_sync(max_api_calls: u32, dry_run: bool, from_override: Option<&str>) 
             }
 
             let result = client.search_window(&from_str, &to_str, &mut |page| {
-                db.upsert_opportunities(page).ok();
+                if let Err(e) = db.upsert_opportunities(page) {
+                    eprintln!("DB upsert error: {e}");
+                }
             })?;
+
+            if let Err(e) = db.log_api_call(
+                "backfill",
+                Some(&from_str),
+                Some(&to_str),
+                result.api_calls,
+                result.records_fetched,
+                result.rate_limited,
+                None,
+            ) {
+                eprintln!("Failed to log API call: {e}");
+            }
 
             api_calls_used += result.api_calls;
             records_synced += result.records_fetched;
@@ -160,7 +193,7 @@ pub fn run_sync(max_api_calls: u32, dry_run: bool, from_override: Option<&str>) 
     })
 }
 
-fn parse_date(s: &str) -> Result<NaiveDate> {
+pub(crate) fn parse_date(s: &str) -> Result<NaiveDate> {
     NaiveDate::parse_from_str(s, DATE_FMT)
         .map_err(|e| anyhow::anyhow!("Failed to parse date '{}': {}", s, e))
 }
@@ -178,5 +211,66 @@ pub fn print_summary(summary: &SyncSummary) {
         eprintln!("  Status:             Rate limited (will resume next run)");
     } else {
         eprintln!("  Status:             Complete");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_date_valid() {
+        let d = parse_date("01/15/2025").unwrap();
+        assert_eq!(d, NaiveDate::from_ymd_opt(2025, 1, 15).unwrap());
+    }
+
+    #[test]
+    fn test_parse_date_various_formats() {
+        assert!(parse_date("12/31/2024").is_ok());
+        assert!(parse_date("02/28/2025").is_ok());
+    }
+
+    #[test]
+    fn test_parse_date_invalid() {
+        assert!(parse_date("2025-01-15").is_err());
+        assert!(parse_date("not-a-date").is_err());
+        assert!(parse_date("").is_err());
+        assert!(parse_date("13/01/2025").is_err());
+    }
+
+    #[test]
+    fn test_sync_summary_defaults() {
+        let summary = SyncSummary {
+            api_calls_used: 0,
+            records_synced: 0,
+            windows_completed: 0,
+            rate_limited: false,
+            backfill_cursor: None,
+        };
+        assert_eq!(summary.api_calls_used, 0);
+        assert!(!summary.rate_limited);
+        assert!(summary.backfill_cursor.is_none());
+    }
+
+    #[test]
+    fn test_sync_summary_with_cursor() {
+        let summary = SyncSummary {
+            api_calls_used: 5,
+            records_synced: 1200,
+            windows_completed: 3,
+            rate_limited: true,
+            backfill_cursor: Some("06/15/2023".to_string()),
+        };
+        assert_eq!(summary.api_calls_used, 5);
+        assert_eq!(summary.records_synced, 1200);
+        assert!(summary.rate_limited);
+        assert_eq!(summary.backfill_cursor.as_deref(), Some("06/15/2023"));
+    }
+
+    #[test]
+    fn test_constants() {
+        assert_eq!(BACKFILL_WINDOW_DAYS, 90);
+        assert_eq!(INCREMENTAL_DAYS, 3);
+        assert_eq!(DATE_FMT, "%m/%d/%Y");
     }
 }

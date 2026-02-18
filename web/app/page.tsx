@@ -5,6 +5,7 @@ import { SearchFilters } from "@/components/search-filters";
 import { FilterPresetBar } from "@/components/filter-preset-bar";
 import { Pagination } from "@/components/pagination";
 import { DEFAULT_PRESET } from "@/lib/presets";
+import { Navbar } from "@/components/navbar";
 
 interface PageProps {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -36,12 +37,10 @@ export default async function Home({ searchParams }: PageProps) {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b-2 border-border bg-background px-6 py-4">
-        <h1 className="text-2xl font-bold">GovScout</h1>
-        <p className="text-sm text-muted-foreground">
-          {stats.total_opportunities.toLocaleString()} federal contract opportunities
-        </p>
-      </header>
+      <Navbar
+        title="Opportunities"
+        subtitle={`${stats.total_opportunities.toLocaleString()} federal contract opportunities`}
+      />
 
       <div className="flex gap-6 p-6">
         <aside className="w-64 shrink-0">

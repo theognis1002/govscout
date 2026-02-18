@@ -1,4 +1,4 @@
-import type { ListResponse, DetailResponse, StatsResponse, SearchFiltersState } from "./types";
+import type { ListResponse, DetailResponse, StatsResponse, SearchFiltersState, ApiCallLogEntry } from "./types";
 
 function getApiBase() {
   return process.env.API_URL || "http://localhost:3001";
@@ -43,5 +43,14 @@ export async function fetchStats(): Promise<StatsResponse> {
   });
 
   if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`);
+  return res.json();
+}
+
+export async function fetchApiCallLogs(limit: number = 100): Promise<ApiCallLogEntry[]> {
+  const res = await fetch(`${getApiBase()}/api/api-calls?limit=${limit}`, {
+    cache: "no-store",
+  });
+
+  if (!res.ok) throw new Error(`Failed to fetch API call logs: ${res.status}`);
   return res.json();
 }

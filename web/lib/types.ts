@@ -87,6 +87,18 @@ export interface StatsResponse {
   departments: FilterOption[];
 }
 
+export interface ApiCallLogEntry {
+  id: number;
+  timestamp: string;
+  context: string;
+  posted_from: string | null;
+  posted_to: string | null;
+  api_calls: number;
+  records_fetched: number;
+  rate_limited: boolean;
+  error_message: string | null;
+}
+
 export interface SearchFiltersState {
   search?: string;
   naics_code?: string;

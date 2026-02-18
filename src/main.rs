@@ -134,7 +134,9 @@ fn main() -> Result<()> {
             } else {
                 // Auto-paginate all results
                 let (first_page, total_saved) = client.search_all(&params, |page| {
-                    db.upsert_opportunities(page).ok();
+                    if let Err(e) = db.upsert_opportunities(page) {
+                        eprintln!("DB upsert error: {e}");
+                    }
                 })?;
                 if json {
                     println!("{}", serde_json::to_string_pretty(&first_page)?);
@@ -160,7 +162,11 @@ fn main() -> Result<()> {
             display::print_types();
         }
 
-        Commands::Sync { max_calls, dry_run, from } => {
+        Commands::Sync {
+            max_calls,
+            dry_run,
+            from,
+        } => {
             let summary = govscout_lib::sync::run_sync(max_calls, dry_run, from.as_deref())?;
             govscout_lib::sync::print_summary(&summary);
         }

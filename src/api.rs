@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 const BASE_URL: &str = "https://api.sam.gov/opportunities/v2/search";
+const PAGE_SIZE: u32 = 1000;
 
 #[derive(Debug)]
 pub struct RateLimited;
@@ -22,7 +23,7 @@ pub struct WindowResult {
     pub rate_limited: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct SearchParams {
     pub limit: u32,
     pub offset: u32,
@@ -205,7 +206,6 @@ impl SamGovClient {
         params: &SearchParams,
         mut on_page: impl FnMut(&ApiResponse),
     ) -> Result<(ApiResponse, usize)> {
-        const PAGE_SIZE: u32 = 1000;
         let mut page_params = params.clone();
         page_params.limit = PAGE_SIZE;
         page_params.offset = 0;
@@ -262,7 +262,6 @@ impl SamGovClient {
         to: &str,
         on_page: &mut impl FnMut(&ApiResponse),
     ) -> Result<WindowResult> {
-        const PAGE_SIZE: u32 = 1000;
         let mut offset: u32 = 0;
         let mut total_fetched: usize = 0;
         let mut api_calls: u32 = 0;
@@ -273,12 +272,7 @@ impl SamGovClient {
                 offset,
                 posted_from: from.to_string(),
                 posted_to: to.to_string(),
-                title: None,
-                ptype: None,
-                naics: None,
-                state: None,
-                set_aside: None,
-                notice_id: None,
+                ..Default::default()
             };
 
             api_calls += 1;
@@ -320,15 +314,8 @@ impl SamGovClient {
     pub fn get(&self, notice_id: &str) -> Result<Opportunity> {
         let params = SearchParams {
             limit: 1,
-            offset: 0,
-            posted_from: String::new(),
-            posted_to: String::new(),
-            title: None,
-            ptype: None,
-            naics: None,
-            state: None,
-            set_aside: None,
             notice_id: Some(notice_id.to_string()),
+            ..Default::default()
         };
 
         let response = self.search(&params)?;

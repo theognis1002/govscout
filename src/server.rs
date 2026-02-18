@@ -13,6 +13,8 @@ use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tower_http::cors::CorsLayer;
 
+use govscout_lib::db;
+
 struct AppState {
     db_path: PathBuf,
 }
@@ -22,13 +24,25 @@ fn open_db(state: &AppState) -> Result<Connection, StatusCode> {
         eprintln!("Failed to open database: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
+    db::configure_pragmas(&conn).map_err(|e| {
+        eprintln!("Failed to set pragmas: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
     conn.execute_batch(
-        "PRAGMA journal_mode=WAL;
-         PRAGMA synchronous=NORMAL;
-         PRAGMA busy_timeout=5000;",
+        "CREATE TABLE IF NOT EXISTS api_call_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+            context TEXT NOT NULL,
+            posted_from TEXT,
+            posted_to TEXT,
+            api_calls INTEGER NOT NULL,
+            records_fetched INTEGER NOT NULL,
+            rate_limited INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT
+        );",
     )
     .map_err(|e| {
-        eprintln!("Failed to set pragmas: {e}");
+        eprintln!("Failed to ensure api_call_log table: {e}");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     Ok(conn)
@@ -163,12 +177,16 @@ impl QueryBuilder {
     }
 
     fn add_like_search(&mut self, search: &str) {
-        let pattern = format!("%{search}%");
+        let escaped = search
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        let pattern = format!("%{escaped}%");
         let i1 = self.params.len() + 1;
         let i2 = i1 + 1;
         let i3 = i1 + 2;
         self.clauses.push(format!(
-            "(title LIKE ?{i1} OR solicitation_number LIKE ?{i2} OR department LIKE ?{i3})"
+            "(title LIKE ?{i1} ESCAPE '\\' OR solicitation_number LIKE ?{i2} ESCAPE '\\' OR department LIKE ?{i3} ESCAPE '\\')"
         ));
         self.params.push(pattern.clone());
         self.params.push(pattern.clone());
@@ -194,6 +212,9 @@ impl QueryBuilder {
     }
 
     fn add_in(&mut self, column: &str, values: &[&str]) {
+        if values.is_empty() {
+            return;
+        }
         let placeholders: Vec<String> = values
             .iter()
             .map(|v| {
@@ -261,16 +282,36 @@ async fn list_opportunities(
         }
     }
     if let Some(ref v) = params.opp_type {
-        qb.add_eq("opp_type", v);
+        if v.contains(',') {
+            let vals: Vec<&str> = v.split(',').map(|s| s.trim()).collect();
+            qb.add_in("opp_type", &vals);
+        } else {
+            qb.add_eq("opp_type", v);
+        }
     }
     if let Some(ref v) = params.set_aside {
-        qb.add_eq("set_aside", v);
+        if v.contains(',') {
+            let vals: Vec<&str> = v.split(',').map(|s| s.trim()).collect();
+            qb.add_in("set_aside", &vals);
+        } else {
+            qb.add_eq("set_aside", v);
+        }
     }
     if let Some(ref v) = params.state {
-        qb.add_eq("pop_state_code", v);
+        if v.contains(',') {
+            let vals: Vec<&str> = v.split(',').map(|s| s.trim()).collect();
+            qb.add_in("pop_state_code", &vals);
+        } else {
+            qb.add_eq("pop_state_code", v);
+        }
     }
     if let Some(ref v) = params.department {
-        qb.add_eq("department", v);
+        if v.contains(',') {
+            let vals: Vec<&str> = v.split(',').map(|s| s.trim()).collect();
+            qb.add_in("department", &vals);
+        } else {
+            qb.add_eq("department", v);
+        }
     }
     if let Some(ref v) = params.date_from {
         qb.add_gte("posted_date", v);
@@ -289,9 +330,15 @@ async fn list_opportunities(
     let count_params = qb.params_as_tosql();
     let total: u64 = conn
         .prepare(&count_sql)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(|e| {
+            eprintln!("Failed to prepare count query: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
         .query_row(count_params.as_slice(), |row| row.get(0))
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            eprintln!("Failed to execute count query: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     // Data
     let li = qb.next_param_idx();
@@ -312,9 +359,10 @@ async fn list_opportunities(
     data_params.push(&limit_s);
     data_params.push(&offset_s);
 
-    let mut stmt = conn
-        .prepare(&data_sql)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut stmt = conn.prepare(&data_sql).map_err(|e| {
+        eprintln!("Failed to prepare data query: {e}");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
 
     let opportunities: Vec<OpportunityRow> = stmt
         .query_map(data_params.as_slice(), |row| {
@@ -339,8 +387,14 @@ async fn list_opportunities(
                 pop_state_name: row.get(16)?,
             })
         })
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .filter_map(|r| r.ok())
+        .map_err(|e| {
+            eprintln!("Failed to query opportunities: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .filter_map(|r| {
+            r.map_err(|e| eprintln!("Failed to read opportunity row: {e}"))
+                .ok()
+        })
         .collect();
 
     Ok(Json(ListResponse {
@@ -368,7 +422,10 @@ async fn get_opportunity(
                     pop_state_code, pop_state_name, pop_city_name, pop_country_name, pop_zip
              FROM opportunities WHERE notice_id = ?1",
         )
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .map_err(|e| {
+            eprintln!("Failed to prepare opportunity query: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
         .query_row(rusqlite::params![id], |row| {
             let resource_links_str: Option<String> = row.get(20)?;
             let resource_links: Option<Vec<String>> =
@@ -408,14 +465,20 @@ async fn get_opportunity(
                 pop_zip: row.get(30)?,
             })
         })
-        .map_err(|_| StatusCode::NOT_FOUND)?;
+        .map_err(|e| {
+            eprintln!("Opportunity not found (id={id}): {e}");
+            StatusCode::NOT_FOUND
+        })?;
 
     let mut stmt = conn
         .prepare(
             "SELECT contact_type, full_name, email, phone, title
              FROM contacts WHERE notice_id = ?1",
         )
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            eprintln!("Failed to prepare contacts query: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let contacts: Vec<ContactRow> = stmt
         .query_map(rusqlite::params![id], |row| {
@@ -427,8 +490,14 @@ async fn get_opportunity(
                 title: row.get(4)?,
             })
         })
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .filter_map(|r| r.ok())
+        .map_err(|e| {
+            eprintln!("Failed to query contacts: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .filter_map(|r| {
+            r.map_err(|e| eprintln!("Failed to read contact row: {e}"))
+                .ok()
+        })
         .collect();
 
     Ok(Json(DetailResponse {
@@ -442,7 +511,10 @@ async fn get_stats(State(state): State<Arc<AppState>>) -> Result<Json<StatsRespo
 
     let total_opportunities: u64 = conn
         .query_row("SELECT COUNT(*) FROM opportunities", [], |row| row.get(0))
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|e| {
+            eprintln!("Failed to count opportunities: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let query_distinct = |col: &str| -> Result<Vec<FilterOption>, StatusCode> {
         let sql = format!(
@@ -450,9 +522,10 @@ async fn get_stats(State(state): State<Arc<AppState>>) -> Result<Json<StatsRespo
              WHERE {col} IS NOT NULL AND {col} != '' \
              GROUP BY {col} ORDER BY cnt DESC"
         );
-        let mut stmt = conn
-            .prepare(&sql)
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let mut stmt = conn.prepare(&sql).map_err(|e| {
+            eprintln!("Failed to prepare stats query for {col}: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
         let rows = stmt
             .query_map([], |row| {
                 Ok(FilterOption {
@@ -460,8 +533,16 @@ async fn get_stats(State(state): State<Arc<AppState>>) -> Result<Json<StatsRespo
                     count: row.get(1)?,
                 })
             })
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        Ok(rows.filter_map(|r| r.ok()).collect())
+            .map_err(|e| {
+                eprintln!("Failed to query stats for {col}: {e}");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        Ok(rows
+            .filter_map(|r| {
+                r.map_err(|e| eprintln!("Failed to read stats row: {e}"))
+                    .ok()
+            })
+            .collect())
     };
 
     Ok(Json(StatsResponse {
@@ -474,18 +555,167 @@ async fn get_stats(State(state): State<Arc<AppState>>) -> Result<Json<StatsRespo
     }))
 }
 
-fn resolve_db_path() -> PathBuf {
-    if let Ok(path) = std::env::var("GOVSCOUT_DB") {
-        return PathBuf::from(path);
+#[derive(Deserialize)]
+struct ApiCallsParams {
+    limit: Option<u32>,
+}
+
+#[derive(Serialize)]
+struct ApiCallLogEntry {
+    id: i64,
+    timestamp: String,
+    context: String,
+    posted_from: Option<String>,
+    posted_to: Option<String>,
+    api_calls: i64,
+    records_fetched: i64,
+    rate_limited: bool,
+    error_message: Option<String>,
+}
+
+async fn list_api_calls(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<ApiCallsParams>,
+) -> Result<Json<Vec<ApiCallLogEntry>>, StatusCode> {
+    let conn = open_db(&state)?;
+    let limit = params.limit.unwrap_or(50).min(200);
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, timestamp, context, posted_from, posted_to, api_calls, records_fetched, rate_limited, error_message
+             FROM api_call_log ORDER BY id DESC LIMIT ?1",
+        )
+        .map_err(|e| {
+            eprintln!("Failed to prepare api_call_log query: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    let entries: Vec<ApiCallLogEntry> = stmt
+        .query_map(rusqlite::params![limit], |row| {
+            Ok(ApiCallLogEntry {
+                id: row.get(0)?,
+                timestamp: row.get(1)?,
+                context: row.get(2)?,
+                posted_from: row.get(3)?,
+                posted_to: row.get(4)?,
+                api_calls: row.get(5)?,
+                records_fetched: row.get(6)?,
+                rate_limited: row.get::<_, i32>(7)? != 0,
+                error_message: row.get(8)?,
+            })
+        })
+        .map_err(|e| {
+            eprintln!("Failed to query api_call_log: {e}");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .filter_map(|r| {
+            r.map_err(|e| eprintln!("Failed to read api_call_log row: {e}"))
+                .ok()
+        })
+        .collect();
+
+    Ok(Json(entries))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_query_builder_empty() {
+        let qb = QueryBuilder::new();
+        assert_eq!(qb.where_sql(), "");
+        assert!(qb.params_as_tosql().is_empty());
+        assert_eq!(qb.next_param_idx(), 1);
     }
-    PathBuf::from("govscout.db")
+
+    #[test]
+    fn test_query_builder_add_eq() {
+        let mut qb = QueryBuilder::new();
+        qb.add_eq("opp_type", "Solicitation");
+        assert_eq!(qb.where_sql(), "WHERE opp_type = ?1");
+        assert_eq!(qb.params.len(), 1);
+        assert_eq!(qb.params[0], "Solicitation");
+    }
+
+    #[test]
+    fn test_query_builder_multiple_clauses() {
+        let mut qb = QueryBuilder::new();
+        qb.add_eq("opp_type", "Solicitation");
+        qb.add_eq("naics_code", "541512");
+        assert_eq!(qb.where_sql(), "WHERE opp_type = ?1 AND naics_code = ?2");
+        assert_eq!(qb.params.len(), 2);
+    }
+
+    #[test]
+    fn test_query_builder_like_search() {
+        let mut qb = QueryBuilder::new();
+        qb.add_like_search("cloud");
+        let sql = qb.where_sql();
+        assert!(sql.contains("title LIKE ?1"));
+        assert!(sql.contains("solicitation_number LIKE ?2"));
+        assert!(sql.contains("department LIKE ?3"));
+        assert_eq!(qb.params.len(), 3);
+        assert_eq!(qb.params[0], "%cloud%");
+    }
+
+    #[test]
+    fn test_query_builder_add_in() {
+        let mut qb = QueryBuilder::new();
+        qb.add_in("naics_code", &["541512", "541511"]);
+        assert_eq!(qb.where_sql(), "WHERE naics_code IN (?1, ?2)");
+        assert_eq!(qb.params.len(), 2);
+    }
+
+    #[test]
+    fn test_query_builder_add_gte_lte() {
+        let mut qb = QueryBuilder::new();
+        qb.add_gte("posted_date", "2025-01-01");
+        qb.add_lte("posted_date", "2025-12-31");
+        assert_eq!(
+            qb.where_sql(),
+            "WHERE posted_date >= ?1 AND posted_date <= ?2"
+        );
+    }
+
+    #[test]
+    fn test_query_builder_add_literal() {
+        let mut qb = QueryBuilder::new();
+        qb.add_literal("active = 'Yes'");
+        assert_eq!(qb.where_sql(), "WHERE active = 'Yes'");
+        assert!(qb.params.is_empty());
+    }
+
+    #[test]
+    fn test_query_builder_next_param_idx() {
+        let mut qb = QueryBuilder::new();
+        assert_eq!(qb.next_param_idx(), 1);
+        qb.add_eq("a", "1");
+        assert_eq!(qb.next_param_idx(), 2);
+        qb.add_eq("b", "2");
+        assert_eq!(qb.next_param_idx(), 3);
+    }
+
+    #[test]
+    fn test_query_builder_combined() {
+        let mut qb = QueryBuilder::new();
+        qb.add_like_search("test");
+        qb.add_eq("opp_type", "Solicitation");
+        qb.add_literal("active = 'Yes'");
+        let sql = qb.where_sql();
+        assert!(sql.starts_with("WHERE "));
+        assert!(sql.contains("title LIKE"));
+        assert!(sql.contains("opp_type = ?4"));
+        assert!(sql.contains("active = 'Yes'"));
+        assert_eq!(qb.params.len(), 4);
+    }
 }
 
 #[tokio::main]
 async fn main() {
     dotenvy::dotenv().ok();
 
-    let db_path = resolve_db_path();
+    let db_path = db::resolve_db_path().expect("Failed to resolve database path");
     if !db_path.exists() {
         eprintln!(
             "Warning: Database not found at {}. Run `govscout search` first to populate data.",
@@ -505,12 +735,21 @@ async fn main() {
         .route("/api/opportunities", get(list_opportunities))
         .route("/api/opportunities/{id}", get(get_opportunity))
         .route("/api/stats", get(get_stats))
+        .route("/api/api-calls", get(list_api_calls))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     eprintln!("GovScout API server listening on http://localhost:{port}");
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-    axum::serve(listener, app).await.unwrap();
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .unwrap_or_else(|e| {
+            eprintln!("Failed to bind to {addr}: {e}");
+            std::process::exit(1);
+        });
+    if let Err(e) = axum::serve(listener, app).await {
+        eprintln!("Server error: {e}");
+        std::process::exit(1);
+    }
 }

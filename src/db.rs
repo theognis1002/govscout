@@ -9,6 +9,18 @@ pub struct Database {
     conn: Connection,
 }
 
+pub struct ApiCallLogRow {
+    pub id: i64,
+    pub timestamp: String,
+    pub context: String,
+    pub posted_from: Option<String>,
+    pub posted_to: Option<String>,
+    pub api_calls: i64,
+    pub records_fetched: i64,
+    pub rate_limited: bool,
+    pub error_message: Option<String>,
+}
+
 impl Database {
     pub fn open() -> Result<Self> {
         let path = resolve_db_path()?;
@@ -21,13 +33,7 @@ impl Database {
         let conn = Connection::open(&path)
             .with_context(|| format!("Failed to open database at {}", path.display()))?;
 
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=NORMAL;
-             PRAGMA foreign_keys=ON;
-             PRAGMA busy_timeout=5000;",
-        )
-        .context("Failed to set database pragmas")?;
+        configure_pragmas(&conn)?;
 
         let db = Self { conn };
         db.init_schema()?;
@@ -113,6 +119,18 @@ impl Database {
                 CREATE TABLE IF NOT EXISTS sync_state (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS api_call_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+                    context TEXT NOT NULL,
+                    posted_from TEXT,
+                    posted_to TEXT,
+                    api_calls INTEGER NOT NULL,
+                    records_fetched INTEGER NOT NULL,
+                    rate_limited INTEGER NOT NULL DEFAULT 0,
+                    error_message TEXT
                 );",
             )
             .context("Failed to initialize database schema")?;
@@ -178,6 +196,70 @@ impl Database {
         tx.commit().context("Failed to commit transaction")?;
 
         Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn log_api_call(
+        &self,
+        context: &str,
+        posted_from: Option<&str>,
+        posted_to: Option<&str>,
+        api_calls: u32,
+        records_fetched: usize,
+        rate_limited: bool,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        self.conn
+            .execute(
+                "INSERT INTO api_call_log (context, posted_from, posted_to, api_calls, records_fetched, rate_limited, error_message)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                rusqlite::params![
+                    context,
+                    posted_from,
+                    posted_to,
+                    api_calls,
+                    records_fetched as i64,
+                    rate_limited as i32,
+                    error_message,
+                ],
+            )
+            .context("Failed to insert api_call_log")?;
+
+        // Prune to keep latest 200 rows
+        self.conn
+            .execute(
+                "DELETE FROM api_call_log WHERE id NOT IN (SELECT id FROM api_call_log ORDER BY id DESC LIMIT 200)",
+                [],
+            )
+            .context("Failed to prune api_call_log")?;
+
+        Ok(())
+    }
+
+    pub fn get_api_call_logs(&self, limit: u32) -> Result<Vec<ApiCallLogRow>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, timestamp, context, posted_from, posted_to, api_calls, records_fetched, rate_limited, error_message
+             FROM api_call_log ORDER BY id DESC LIMIT ?1",
+        )?;
+
+        let rows = stmt
+            .query_map(rusqlite::params![limit], |row| {
+                Ok(ApiCallLogRow {
+                    id: row.get(0)?,
+                    timestamp: row.get(1)?,
+                    context: row.get(2)?,
+                    posted_from: row.get(3)?,
+                    posted_to: row.get(4)?,
+                    api_calls: row.get(5)?,
+                    records_fetched: row.get(6)?,
+                    rate_limited: row.get::<_, i32>(7)? != 0,
+                    error_message: row.get(8)?,
+                })
+            })?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(rows)
     }
 
     fn upsert_opportunity_inner(conn: &Connection, opp: &Opportunity) -> Result<()> {
@@ -350,7 +432,18 @@ impl Database {
     }
 }
 
-fn resolve_db_path() -> Result<PathBuf> {
+pub fn configure_pragmas(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        "PRAGMA journal_mode=WAL;
+         PRAGMA synchronous=NORMAL;
+         PRAGMA foreign_keys=ON;
+         PRAGMA busy_timeout=5000;",
+    )
+    .context("Failed to set database pragmas")?;
+    Ok(())
+}
+
+pub fn resolve_db_path() -> Result<PathBuf> {
     if let Ok(path) = std::env::var("GOVSCOUT_DB") {
         return Ok(PathBuf::from(path));
     }
@@ -667,6 +760,96 @@ mod tests {
             db.get_earliest_posted_date().unwrap(),
             Some("01/10/2025".to_string())
         );
+    }
+
+    #[test]
+    fn test_log_api_call() {
+        let db = Database::open_in_memory().unwrap();
+        db.log_api_call(
+            "incremental",
+            Some("01/01/2025"),
+            Some("01/03/2025"),
+            1,
+            42,
+            false,
+            None,
+        )
+        .unwrap();
+
+        let logs = db.get_api_call_logs(10).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].context, "incremental");
+        assert_eq!(logs[0].posted_from.as_deref(), Some("01/01/2025"));
+        assert_eq!(logs[0].posted_to.as_deref(), Some("01/03/2025"));
+        assert_eq!(logs[0].api_calls, 1);
+        assert_eq!(logs[0].records_fetched, 42);
+        assert!(!logs[0].rate_limited);
+        assert!(logs[0].error_message.is_none());
+    }
+
+    #[test]
+    fn test_log_api_call_rate_limited() {
+        let db = Database::open_in_memory().unwrap();
+        db.log_api_call(
+            "backfill",
+            Some("01/01/2024"),
+            Some("03/31/2024"),
+            2,
+            0,
+            true,
+            Some("429 Too Many Requests"),
+        )
+        .unwrap();
+
+        let logs = db.get_api_call_logs(10).unwrap();
+        assert_eq!(logs.len(), 1);
+        assert!(logs[0].rate_limited);
+        assert_eq!(
+            logs[0].error_message.as_deref(),
+            Some("429 Too Many Requests")
+        );
+    }
+
+    #[test]
+    fn test_log_api_call_ordering() {
+        let db = Database::open_in_memory().unwrap();
+        db.log_api_call("incremental", None, None, 1, 10, false, None)
+            .unwrap();
+        db.log_api_call("backfill", None, None, 1, 20, false, None)
+            .unwrap();
+        db.log_api_call("incremental", None, None, 1, 30, false, None)
+            .unwrap();
+
+        let logs = db.get_api_call_logs(10).unwrap();
+        assert_eq!(logs.len(), 3);
+        // Most recent first (DESC order)
+        assert_eq!(logs[0].records_fetched, 30);
+        assert_eq!(logs[1].records_fetched, 20);
+        assert_eq!(logs[2].records_fetched, 10);
+    }
+
+    #[test]
+    fn test_log_api_call_limit() {
+        let db = Database::open_in_memory().unwrap();
+        for i in 0..5 {
+            db.log_api_call("test", None, None, 1, i, false, None)
+                .unwrap();
+        }
+
+        let logs = db.get_api_call_logs(2).unwrap();
+        assert_eq!(logs.len(), 2);
+    }
+
+    #[test]
+    fn test_log_api_call_pruning() {
+        let db = Database::open_in_memory().unwrap();
+        for i in 0..205 {
+            db.log_api_call("test", None, None, 1, i, false, None)
+                .unwrap();
+        }
+
+        let logs = db.get_api_call_logs(300).unwrap();
+        assert_eq!(logs.len(), 200);
     }
 
     #[test]
