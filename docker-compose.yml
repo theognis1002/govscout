@@ -2,8 +2,8 @@ services:
   backend:
     image: rust:latest
     working_dir: /app
-    ports:
-      - "3001:3001"
+    expose:
+      - "3001"
     volumes:
       - ./src:/app/src
       - ./Cargo.toml:/app/Cargo.toml
@@ -33,6 +33,9 @@ services:
       - frontend-node-modules:/app/node_modules
     environment:
       - API_URL=http://backend:3001
+      - ADMIN_USERNAME=${ADMIN_USERNAME}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - AUTH_SECRET=${AUTH_SECRET}
     command: sh -c "bun install && bun dev --hostname 0.0.0.0"
 
 volumes:

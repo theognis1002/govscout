@@ -1,0 +1,36 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.backend
+    expose:
+      - "3001"
+    volumes:
+      - ./govscout.db:/data/govscout.db
+    environment:
+      - SAMGOV_API_KEY=${SAMGOV_API_KEY}
+      - GOVSCOUT_DB=/data/govscout.db
+      - PORT=3001
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3001/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - API_URL=http://backend:3001
+      - ADMIN_USERNAME=${ADMIN_USERNAME}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - AUTH_SECRET=${AUTH_SECRET}
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped

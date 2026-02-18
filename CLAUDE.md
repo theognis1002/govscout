@@ -33,15 +33,21 @@ web/                 # Next.js frontend (bun)
 ├── app/
 │   ├── layout.tsx
 │   ├── page.tsx                    # Opportunities list + filters + pagination
+│   ├── login/page.tsx              # Login page (client component)
+│   ├── api/auth/login/route.ts     # POST login (sets JWT cookie)
+│   ├── api/auth/logout/route.ts    # POST logout (clears cookie)
 │   └── opportunities/[id]/page.tsx # Detail view
 ├── components/
 │   ├── ui/                         # shadcn neo-brutalism components
+│   ├── logout-button.tsx           # Sign out button (client component)
 │   ├── opportunity-card.tsx
 │   ├── opportunity-detail.tsx
 │   ├── search-filters.tsx
 │   └── pagination.tsx
+├── middleware.ts                    # Auth gate — redirects unauthenticated to /login
 └── lib/
     ├── api.ts                      # Typed fetch client
+    ├── auth.ts                     # JWT session helpers (jose)
     └── types.ts                    # TS types matching Rust API DTOs
 ```
 
@@ -88,11 +94,13 @@ cargo clippy -- -D warnings  # Lint
 ## Testing
 
 ```bash
-cargo test                                     # Run all unit tests (20 tests)
-cargo test --lib                               # Unit tests only
+cargo test                                     # Run all unit tests (40 tests)
+cargo test --lib                               # Library unit tests (31 tests)
 cargo test display::tests                      # display.rs tests only
 cargo test api::tests                          # api.rs tests only
 cargo test db::tests                           # db.rs tests only
+cargo test sync::tests                         # sync.rs tests only
+cargo test --bin govscout-server               # server.rs tests only (QueryBuilder)
 ```
 
 Smoke test with:
@@ -112,6 +120,9 @@ See `.env.example`:
 - `SAMGOV_API_KEY` — SAM.gov API key (required for CLI)
 - `GOVSCOUT_DB` — SQLite database path (default: `./govscout.db`)
 - `PORT` — API server port (default: `3001`)
+- `ADMIN_USERNAME` — Web login username (required for frontend auth)
+- `ADMIN_PASSWORD` — Web login password (required for frontend auth)
+- `AUTH_SECRET` — JWT signing secret, 32+ random chars (required for frontend auth)
 
 ## API Details
 
@@ -129,6 +140,9 @@ See `.env.example`:
 - Default date range: 30 days ago to today
 - `search` auto-paginates all results by default (1000/page); `--limit N` for single-page
 - DB defaults to `./govscout.db` in current directory (override with `GOVSCOUT_DB` env var)
+- Frontend auth via JWT session cookie (`jose` library, edge-runtime compatible)
+- Next.js middleware protects all routes; `/login` and `/api/auth/*` are public
+- Backend port unexposed in Docker; only reachable through authenticated Next.js proxy
 
 ## Deployment / Cron
 
@@ -141,17 +155,34 @@ The `sync` command is designed for daily cron use:
 
 Example cron: `0 2 * * * cd /path/to/govscout && ./target/release/govscout sync >> /var/log/govscout-sync.log 2>&1`
 
-## Docker (dev with hot reload)
+## Docker
+
+### Development (`docker-compose.yml`)
 
 ```bash
 docker compose up                    # Start both services
 docker compose down                  # Stop
 ```
 
-- Backend: `cargo-watch` auto-rebuilds on `src/` changes
-- Frontend: `bun dev` with source mounted, Next.js HMR works out of the box
+- Backend: mounts `src/`, `Cargo.toml`, `Cargo.lock` into `rust:latest` and runs `cargo run`; rebuild manually with `docker compose restart backend` after code changes
+- Frontend: mounts `web/` into `oven/bun:1` and runs `bun dev`; Next.js HMR works out of the box
 - Cargo build cache and `node_modules` are persisted in named volumes
 - SQLite DB uses `./govscout.db` from the project root (bind-mounted)
 - `SAMGOV_API_KEY` is read from `.env` in the project root
+- Auth env vars (`ADMIN_USERNAME`, `ADMIN_PASSWORD`, `AUTH_SECRET`) passed to frontend service
+
+### Production (`docker-compose.prod.yml`)
+
+```bash
+docker compose -f docker-compose.prod.yml build   # Build images
+docker compose -f docker-compose.prod.yml up -d    # Start in background
+docker compose -f docker-compose.prod.yml down      # Stop
+```
+
+- Backend: multi-stage build (`docker/Dockerfile.backend`) — compiles release binary, runs in slim Debian image
+- Frontend: multi-stage build (`docker/Dockerfile.frontend`) — builds Next.js standalone output, runs with `bun`
+- No source mounts or build caches; fully self-contained images
+- Frontend `depends_on` backend healthcheck before starting
+- Both services restart automatically (`unless-stopped`)
 
 See also: [AGENTS.md](AGENTS.md) for agent-specific guidance.
