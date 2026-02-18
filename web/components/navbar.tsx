@@ -2,12 +2,15 @@ import Link from "next/link";
 import { LogoutButton } from "@/components/logout-button";
 
 interface NavbarProps {
-  title: string;
-  subtitle?: string;
-  children?: React.ReactNode;
+  currentPage: "opportunities" | "api-logs" | "detail";
 }
 
-export function Navbar({ title, subtitle, children }: NavbarProps) {
+const navLinks = [
+  { href: "/", label: "Opportunities", key: "opportunities" as const },
+  { href: "/api-logs", label: "API Logs", key: "api-logs" as const },
+];
+
+export function Navbar({ currentPage }: NavbarProps) {
   return (
     <header className="border-b-2 border-border bg-background px-6 py-4">
       <div className="flex items-center justify-between">
@@ -15,28 +18,20 @@ export function Navbar({ title, subtitle, children }: NavbarProps) {
           GovScout
         </Link>
         <div className="flex items-center gap-3">
-          <Link
-            href="/"
-            className="text-sm text-muted-foreground hover:text-foreground"
-          >
-            Opportunities
-          </Link>
-          <Link
-            href="/api-logs"
-            className="text-sm text-muted-foreground hover:text-foreground"
-          >
-            API Logs
-          </Link>
+          {navLinks.map((link) => (
+            <Link
+              key={link.key}
+              href={link.href}
+              className={
+                currentPage === link.key
+                  ? "text-sm font-semibold text-foreground"
+                  : "text-sm text-muted-foreground hover:text-foreground"
+              }
+            >
+              {link.label}
+            </Link>
+          ))}
           <LogoutButton />
-        </div>
-      </div>
-      <div className="mt-1 flex items-center gap-3">
-        {children}
-        <div>
-          <h1 className="text-lg font-semibold">{title}</h1>
-          {subtitle && (
-            <p className="text-sm text-muted-foreground">{subtitle}</p>
-          )}
         </div>
       </div>
     </header>

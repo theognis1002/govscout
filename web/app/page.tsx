@@ -37,10 +37,7 @@ export default async function Home({ searchParams }: PageProps) {
 
   return (
     <div className="min-h-screen">
-      <Navbar
-        title="Opportunities"
-        subtitle={`${stats.total_opportunities.toLocaleString()} federal contract opportunities`}
-      />
+      <Navbar currentPage="opportunities" />
 
       <div className="flex gap-6 p-6">
         <aside className="w-64 shrink-0">

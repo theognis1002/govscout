@@ -15,25 +15,13 @@ export default async function ApiLogsPage() {
 
   return (
     <div className="min-h-screen">
-      <header className="border-b-2 border-border bg-background px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link
-              href="/"
-              className="text-sm text-muted-foreground hover:text-foreground"
-            >
-              &larr; Back
-            </Link>
-            <h1 className="text-2xl font-bold">API Call Log</h1>
-          </div>
-          <LogoutButton />
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Recent SAM.gov API calls from sync operations
-        </p>
-      </header>
+      <Navbar currentPage="api-logs" />
 
       <main className="p-6">
+        <div className="mb-6">
+          <h1 className="text-lg font-semibold">API Call Log</h1>
+          <p className="text-sm text-muted-foreground">Recent SAM.gov API calls from sync operations</p>
+        </div>
         {logs.length === 0 ? (
           <p className="text-center text-muted-foreground py-12">
             No API calls logged yet. Run a sync to see activity here.
