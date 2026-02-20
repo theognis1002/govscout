@@ -2,6 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Button } from "@/components/ui/button";
+import { DownloadAllButton } from "@/components/download-all-button";
 import type { DetailResponse } from "@/lib/types";
 
 function Field({ label, value }: { label: string; value: string | null | undefined }) {
@@ -155,7 +156,10 @@ export function OpportunityDetailView({ data }: { data: DetailResponse }) {
           )}
           {opp.resource_links && opp.resource_links.length > 0 && (
             <div className="mt-2 space-y-1">
-              <p className="text-sm font-semibold">Resources:</p>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold">Resources:</p>
+                <DownloadAllButton opportunityId={opp.notice_id!} />
+              </div>
               {opp.resource_links.map((link, i) => (
                 <a
                   key={i}
