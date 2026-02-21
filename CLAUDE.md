@@ -117,7 +117,7 @@ cargo run --bin govscout -- types                             # Reference table
 
 See `.env.example`:
 
-- `SAMGOV_API_KEY` — SAM.gov API key (required for CLI)
+- `SAMGOV_API_KEY` — SAM.gov API key (required for CLI). Supports comma-separated keys for rotation (e.g., `key1,key2,key3`)
 - `GOVSCOUT_DB` — SQLite database path (default: `./govscout.db`)
 - `PORT` — API server port (default: `3001`)
 - `ADMIN_USERNAME` — Web login username (required for frontend auth)
@@ -130,7 +130,7 @@ See `.env.example`:
 - Auth: `api_key` query parameter
 - Date format: `MM/DD/YYYY`
 - Key query params: `limit`, `offset`, `postedFrom`, `postedTo`, `title`, `ptype`, `ncode`, `state`, `typeOfSetAside`, `noticeid`
-- **Rate limiting**: SAM.gov enforces aggressive rate limits (~20 API calls/day per key). This is a hard platform constraint — do NOT increase `--max-calls` above 18 or attempt to work around rate limits. The sync command is carefully budgeted to stay within these limits (1-2 calls for incremental sync, remainder for backfill). Exceeding the limit results in 429 responses and temporary lockout.
+- **Rate limiting**: SAM.gov enforces aggressive rate limits (~20 API calls/day per key). This is a hard platform constraint — do NOT increase `--max-calls` above 18 or attempt to work around rate limits. The sync command is carefully budgeted to stay within these limits (1-2 calls for incremental sync, remainder for backfill). Exceeding the limit results in 429 responses and temporary lockout. Multiple comma-separated keys in `SAMGOV_API_KEY` enable automatic rotation on 429/401/403 responses, multiplying the effective daily budget.
 
 ## Key Design Decisions
 

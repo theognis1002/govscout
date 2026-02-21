@@ -120,13 +120,24 @@ pub struct PlaceValue {
 
 pub struct SamGovClient {
     client: Client,
-    api_key: String,
+    api_keys: Vec<String>,
+    current_key: std::cell::Cell<usize>,
 }
 
 impl SamGovClient {
     pub fn new() -> Result<Self> {
-        let api_key = std::env::var("SAMGOV_API_KEY")
+        let raw = std::env::var("SAMGOV_API_KEY")
             .context("SAMGOV_API_KEY not found. Set it in .env or as an environment variable.")?;
+
+        let api_keys: Vec<String> = raw
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        if api_keys.is_empty() {
+            bail!("SAMGOV_API_KEY is set but contains no valid keys.");
+        }
 
         let client = Client::builder()
             .timeout(std::time::Duration::from_secs(30))
@@ -134,68 +145,101 @@ impl SamGovClient {
             .build()
             .context("Failed to build HTTP client")?;
 
-        Ok(Self { client, api_key })
+        Ok(Self {
+            client,
+            api_keys,
+            current_key: std::cell::Cell::new(0),
+        })
+    }
+
+    fn current_api_key(&self) -> &str {
+        &self.api_keys[self.current_key.get()]
+    }
+
+    fn redact_keys(&self, msg: &str) -> String {
+        let mut result = msg.to_string();
+        for key in &self.api_keys {
+            result = result.replace(key, "[REDACTED]");
+        }
+        result
     }
 
     pub fn search(&self, params: &SearchParams) -> Result<ApiResponse> {
-        let mut query: Vec<(&str, String)> = vec![
-            ("api_key", self.api_key.clone()),
-            ("limit", params.limit.to_string()),
-            ("offset", params.offset.to_string()),
-        ];
+        let start_key_index = self.current_key.get();
 
-        // Date range is only required when not searching by notice ID
-        if params.notice_id.is_none() {
-            query.push(("postedFrom", params.posted_from.clone()));
-            query.push(("postedTo", params.posted_to.clone()));
-        }
+        loop {
+            let mut query: Vec<(&str, String)> = vec![
+                ("api_key", self.current_api_key().to_string()),
+                ("limit", params.limit.to_string()),
+                ("offset", params.offset.to_string()),
+            ];
 
-        if let Some(ref title) = params.title {
-            query.push(("title", title.clone()));
-        }
-        if let Some(ref ptype) = params.ptype {
-            query.push(("ptype", ptype.clone()));
-        }
-        if let Some(ref naics) = params.naics {
-            query.push(("ncode", naics.clone()));
-        }
-        if let Some(ref state) = params.state {
-            query.push(("state", state.clone()));
-        }
-        if let Some(ref set_aside) = params.set_aside {
-            query.push(("typeOfSetAside", set_aside.clone()));
-        }
-        if let Some(ref notice_id) = params.notice_id {
-            query.push(("noticeid", notice_id.clone()));
-        }
+            if params.notice_id.is_none() {
+                query.push(("postedFrom", params.posted_from.clone()));
+                query.push(("postedTo", params.posted_to.clone()));
+            }
 
-        let response = self
-            .client
-            .get(BASE_URL)
-            .query(&query)
-            .send()
-            .map_err(|e| {
-                let msg = e.to_string().replace(&self.api_key, "[REDACTED]");
-                anyhow::anyhow!("Failed to connect to SAM.gov API: {msg}")
-            })?;
+            if let Some(ref title) = params.title {
+                query.push(("title", title.clone()));
+            }
+            if let Some(ref ptype) = params.ptype {
+                query.push(("ptype", ptype.clone()));
+            }
+            if let Some(ref naics) = params.naics {
+                query.push(("ncode", naics.clone()));
+            }
+            if let Some(ref state) = params.state {
+                query.push(("state", state.clone()));
+            }
+            if let Some(ref set_aside) = params.set_aside {
+                query.push(("typeOfSetAside", set_aside.clone()));
+            }
+            if let Some(ref notice_id) = params.notice_id {
+                query.push(("noticeid", notice_id.clone()));
+            }
 
-        let status = response.status();
-        if status.as_u16() == 429 {
-            return Err(anyhow::Error::new(RateLimited));
+            let response = self
+                .client
+                .get(BASE_URL)
+                .query(&query)
+                .send()
+                .map_err(|e| {
+                    let msg = self.redact_keys(&e.to_string());
+                    anyhow::anyhow!("Failed to connect to SAM.gov API: {msg}")
+                })?;
+
+            let status = response.status();
+            let should_rotate = matches!(status.as_u16(), 429 | 401 | 403);
+
+            if should_rotate && self.api_keys.len() > 1 {
+                let failed_index = self.current_key.get();
+                let next = (failed_index + 1) % self.api_keys.len();
+                self.current_key.set(next);
+
+                if next != start_key_index {
+                    eprintln!(
+                        "API key #{} got {status}, rotating to key #{}",
+                        failed_index + 1,
+                        next + 1
+                    );
+                    continue;
+                }
+            }
+
+            if status.as_u16() == 429 {
+                return Err(anyhow::Error::new(RateLimited));
+            }
+            if !status.is_success() {
+                let body = self.redact_keys(&response.text().unwrap_or_default());
+                bail!("SAM.gov API returned {status}: {body}");
+            }
+
+            let api_response: ApiResponse = response
+                .json()
+                .context("Failed to parse SAM.gov API response")?;
+
+            return Ok(api_response);
         }
-        if !status.is_success() {
-            let body = response
-                .text()
-                .unwrap_or_default()
-                .replace(&self.api_key, "[REDACTED]");
-            bail!("SAM.gov API returned {status}: {body}");
-        }
-
-        let api_response: ApiResponse = response
-            .json()
-            .context("Failed to parse SAM.gov API response")?;
-
-        Ok(api_response)
     }
 
     /// Paginate through all results for the given search params.
