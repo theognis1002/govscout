@@ -11,7 +11,6 @@ export const PRESETS: FilterPreset[] = [
     filters: {
       naics_code: "541511,541512,541513,541519,518210,511210",
       opp_type: "Solicitation,Combined Synopsis/Solicitation,Presolicitation,Sources Sought,Special Notice",
-      response_deadline: "3m",
       active_only: "true",
     },
   },

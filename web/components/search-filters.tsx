@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { StatsResponse } from "@/lib/types";
+import { NAICS_LABELS } from "@/lib/naics-labels";
 
 const ALL_VALUE = "__all__";
 
@@ -190,7 +191,7 @@ export function SearchFilters({ stats }: { stats: StatsResponse }) {
                 onCheckedChange={() => toggleNaics(n.value)}
               />
               <Label htmlFor={`naics-${n.value}`} className="text-sm font-normal cursor-pointer">
-                {n.value} ({n.count})
+                {n.value}{NAICS_LABELS[n.value] ? ` — ${NAICS_LABELS[n.value]}` : ""} ({n.count})
               </Label>
             </div>
           ))}
