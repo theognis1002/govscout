@@ -106,6 +106,8 @@ export interface SearchFiltersState {
   set_aside?: string;
   state?: string;
   department?: string;
+  response_deadline_from?: string;
+  response_deadline_to?: string;
   active_only?: boolean;
   limit?: number;
   offset?: number;

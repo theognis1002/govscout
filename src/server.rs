@@ -60,6 +60,8 @@ struct ListParams {
     department: Option<String>,
     date_from: Option<String>,
     date_to: Option<String>,
+    response_deadline_from: Option<String>,
+    response_deadline_to: Option<String>,
     active_only: Option<bool>,
     limit: Option<u32>,
     offset: Option<u32>,
@@ -161,6 +163,18 @@ struct FilterOption {
     count: u64,
 }
 
+// --- Helpers ---
+
+/// Convert MM/DD/YYYY to YYYYMMDD for string comparison
+fn mmddyyyy_to_yyyymmdd(date: &str) -> String {
+    let parts: Vec<&str> = date.split('/').collect();
+    if parts.len() == 3 {
+        format!("{}{}{}", parts[2], parts[0], parts[1])
+    } else {
+        date.to_string()
+    }
+}
+
 // --- Query builder helper ---
 
 struct QueryBuilder {
@@ -225,6 +239,25 @@ impl QueryBuilder {
             .collect();
         self.clauses
             .push(format!("{column} IN ({})", placeholders.join(", ")));
+    }
+
+    /// Compare a MM/DD/YYYY date column using >= by converting both sides to YYYYMMDD
+    fn add_date_gte(&mut self, column: &str, value: &str) {
+        let idx = self.params.len() + 1;
+        self.clauses.push(format!(
+            "substr({column},7,4)||substr({column},1,2)||substr({column},4,2) >= ?{idx}"
+        ));
+        // Convert MM/DD/YYYY param to YYYYMMDD for comparison
+        self.params.push(mmddyyyy_to_yyyymmdd(value));
+    }
+
+    /// Compare a MM/DD/YYYY date column using <= by converting both sides to YYYYMMDD
+    fn add_date_lte(&mut self, column: &str, value: &str) {
+        let idx = self.params.len() + 1;
+        self.clauses.push(format!(
+            "substr({column},7,4)||substr({column},1,2)||substr({column},4,2) <= ?{idx}"
+        ));
+        self.params.push(mmddyyyy_to_yyyymmdd(value));
     }
 
     fn add_literal(&mut self, clause: &str) {
@@ -318,6 +351,12 @@ async fn list_opportunities(
     }
     if let Some(ref v) = params.date_to {
         qb.add_lte("posted_date", v);
+    }
+    if let Some(ref v) = params.response_deadline_from {
+        qb.add_date_gte("response_deadline", v);
+    }
+    if let Some(ref v) = params.response_deadline_to {
+        qb.add_date_lte("response_deadline", v);
     }
     if params.active_only.unwrap_or(false) {
         qb.add_literal("active = 'Yes'");
@@ -694,6 +733,25 @@ mod tests {
         assert_eq!(qb.next_param_idx(), 2);
         qb.add_eq("b", "2");
         assert_eq!(qb.next_param_idx(), 3);
+    }
+
+    #[test]
+    fn test_mmddyyyy_to_yyyymmdd() {
+        assert_eq!(mmddyyyy_to_yyyymmdd("02/20/2026"), "20260220");
+        assert_eq!(mmddyyyy_to_yyyymmdd("12/01/2025"), "20251201");
+        assert_eq!(mmddyyyy_to_yyyymmdd("invalid"), "invalid");
+    }
+
+    #[test]
+    fn test_query_builder_date_gte_lte() {
+        let mut qb = QueryBuilder::new();
+        qb.add_date_gte("response_deadline", "02/20/2026");
+        qb.add_date_lte("response_deadline", "05/20/2026");
+        let sql = qb.where_sql();
+        assert!(sql.contains("substr(response_deadline,7,4)||substr(response_deadline,1,2)||substr(response_deadline,4,2) >= ?1"));
+        assert!(sql.contains("substr(response_deadline,7,4)||substr(response_deadline,1,2)||substr(response_deadline,4,2) <= ?2"));
+        assert_eq!(qb.params[0], "20260220");
+        assert_eq!(qb.params[1], "20260520");
     }
 
     #[test]

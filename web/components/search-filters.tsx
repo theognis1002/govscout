@@ -17,6 +17,29 @@ import type { StatsResponse } from "@/lib/types";
 
 const ALL_VALUE = "__all__";
 
+const SET_ASIDE_LABELS: Record<string, string> = {
+  SBA: "Total Small Business Set-Aside (FAR 19.5)",
+  SBP: "Partial Small Business Set-Aside (FAR 19.5)",
+  "8A": "8(a) Set-Aside (FAR 19.8)",
+  "8AN": "8(a) Sole Source (FAR 19.8)",
+  HZC: "HUBZone Set-Aside (FAR 19.13)",
+  HZS: "HUBZone Sole Source (FAR 19.13)",
+  SDVOSBC: "Service-Disabled Veteran-Owned SB Set-Aside",
+  SDVOSBS: "SDVOSB Sole Source",
+  WOSB: "Women-Owned Small Business",
+  EDWOSB: "Economically Disadvantaged WOSB",
+  VSA: "Veteran-Owned Small Business",
+  VSS: "Veteran-Owned SB Sole Source",
+};
+
+const RESPONSE_DEADLINE_OPTIONS = [
+  { value: "", label: "Any deadline" },
+  { value: "1m", label: "Next 1 month" },
+  { value: "3m", label: "Next 3 months" },
+  { value: "6m", label: "Next 6 months" },
+  { value: "12m", label: "Next 12 months" },
+];
+
 export function SearchFilters({ stats }: { stats: StatsResponse }) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -26,21 +49,30 @@ export function SearchFilters({ stats }: { stats: StatsResponse }) {
     const param = searchParams.get("naics_code") ?? "";
     return param ? param.split(",") : [];
   });
-  const [oppType, setOppType] = useState(searchParams.get("opp_type") ?? "");
-  const [setAside, setSetAside] = useState(searchParams.get("set_aside") ?? "");
+  const [oppTypes, setOppTypes] = useState<string[]>(() => {
+    const param = searchParams.get("opp_type") ?? "";
+    return param ? param.split(",") : [];
+  });
+  const [setAsides, setSetAsides] = useState<string[]>(() => {
+    const param = searchParams.get("set_aside") ?? "";
+    return param ? param.split(",") : [];
+  });
   const [state, setState] = useState(searchParams.get("state") ?? "");
   const [department, setDepartment] = useState(searchParams.get("department") ?? "");
+  const [responseDeadline, setResponseDeadline] = useState(searchParams.get("response_deadline") ?? "");
   const [activeOnly, setActiveOnly] = useState(searchParams.get("active_only") === "true");
 
-  // Sync filter state from URL when searchParams change (e.g. preset navigation)
   useEffect(() => {
     setSearch(searchParams.get("search") ?? "");
     const naicsParam = searchParams.get("naics_code") ?? "";
     setNaicsCodes(naicsParam ? naicsParam.split(",") : []);
-    setOppType(searchParams.get("opp_type") ?? "");
-    setSetAside(searchParams.get("set_aside") ?? "");
+    const oppTypeParam = searchParams.get("opp_type") ?? "";
+    setOppTypes(oppTypeParam ? oppTypeParam.split(",") : []);
+    const setAsideParam = searchParams.get("set_aside") ?? "";
+    setSetAsides(setAsideParam ? setAsideParam.split(",") : []);
     setState(searchParams.get("state") ?? "");
     setDepartment(searchParams.get("department") ?? "");
+    setResponseDeadline(searchParams.get("response_deadline") ?? "");
     setActiveOnly(searchParams.get("active_only") === "true");
   }, [searchParams]);
 
@@ -50,26 +82,40 @@ export function SearchFilters({ stats }: { stats: StatsResponse }) {
     );
   }, []);
 
+  const toggleOppType = useCallback((type: string) => {
+    setOppTypes((prev) =>
+      prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
+    );
+  }, []);
+
+  const toggleSetAside = useCallback((code: string) => {
+    setSetAsides((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+    );
+  }, []);
+
   const applyFilters = useCallback(() => {
     const params = new URLSearchParams();
     if (search) params.set("search", search);
     if (naicsCodes.length > 0) params.set("naics_code", naicsCodes.join(","));
-    if (oppType) params.set("opp_type", oppType);
-    if (setAside) params.set("set_aside", setAside);
+    if (oppTypes.length > 0) params.set("opp_type", oppTypes.join(","));
+    if (setAsides.length > 0) params.set("set_aside", setAsides.join(","));
     if (state) params.set("state", state);
     if (department) params.set("department", department);
+    if (responseDeadline) params.set("response_deadline", responseDeadline);
     if (activeOnly) params.set("active_only", "true");
     const qs = params.toString();
     router.push(qs ? `/?${qs}` : "/");
-  }, [search, naicsCodes, oppType, setAside, state, department, activeOnly, router]);
+  }, [search, naicsCodes, oppTypes, setAsides, state, department, responseDeadline, activeOnly, router]);
 
   const clearFilters = useCallback(() => {
     setSearch("");
     setNaicsCodes([]);
-    setOppType("");
-    setSetAside("");
+    setOppTypes([]);
+    setSetAsides([]);
     setState("");
     setDepartment("");
+    setResponseDeadline("");
     setActiveOnly(false);
     router.push("/");
   }, [router]);
@@ -92,20 +138,45 @@ export function SearchFilters({ stats }: { stats: StatsResponse }) {
       </div>
 
       <div>
-        <Label>Type</Label>
-        <Select value={oppType || ALL_VALUE} onValueChange={(v) => setOppType(v === ALL_VALUE ? "" : v)}>
+        <Label>Response Deadline</Label>
+        <Select
+          value={responseDeadline || ALL_VALUE}
+          onValueChange={(v) => setResponseDeadline(v === ALL_VALUE ? "" : v)}
+        >
           <SelectTrigger>
-            <SelectValue placeholder="All types" />
+            <SelectValue placeholder="Any deadline" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL_VALUE}>All types</SelectItem>
-            {stats.opp_types.map((t) => (
-              <SelectItem key={t.value} value={t.value}>
-                {t.value} ({t.count})
+            {RESPONSE_DEADLINE_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value || ALL_VALUE} value={opt.value || ALL_VALUE}>
+                {opt.label}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
+      </div>
+
+      <div>
+        <Label>Notice Type</Label>
+        <div className="max-h-48 overflow-y-auto border border-border rounded-none p-2 space-y-1">
+          {stats.opp_types.map((t) => (
+            <div key={t.value} className="flex items-center gap-2">
+              <Checkbox
+                id={`opptype-${t.value}`}
+                checked={oppTypes.includes(t.value)}
+                onCheckedChange={() => toggleOppType(t.value)}
+              />
+              <Label htmlFor={`opptype-${t.value}`} className="text-sm font-normal cursor-pointer">
+                {t.value} ({t.count})
+              </Label>
+            </div>
+          ))}
+        </div>
+        {oppTypes.length > 0 && (
+          <p className="text-xs text-muted-foreground mt-1">
+            {oppTypes.length} selected
+          </p>
+        )}
       </div>
 
       <div>
@@ -133,19 +204,25 @@ export function SearchFilters({ stats }: { stats: StatsResponse }) {
 
       <div>
         <Label>Set-Aside</Label>
-        <Select value={setAside || ALL_VALUE} onValueChange={(v) => setSetAside(v === ALL_VALUE ? "" : v)}>
-          <SelectTrigger>
-            <SelectValue placeholder="All set-asides" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL_VALUE}>All set-asides</SelectItem>
-            {stats.set_asides.map((s) => (
-              <SelectItem key={s.value} value={s.value}>
-                {s.value} ({s.count})
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="max-h-48 overflow-y-auto border border-border rounded-none p-2 space-y-1">
+          {stats.set_asides.map((s) => (
+            <div key={s.value} className="flex items-center gap-2">
+              <Checkbox
+                id={`setaside-${s.value}`}
+                checked={setAsides.includes(s.value)}
+                onCheckedChange={() => toggleSetAside(s.value)}
+              />
+              <Label htmlFor={`setaside-${s.value}`} className="text-sm font-normal cursor-pointer">
+                {s.value}{SET_ASIDE_LABELS[s.value] ? ` — ${SET_ASIDE_LABELS[s.value]}` : ""} ({s.count})
+              </Label>
+            </div>
+          ))}
+        </div>
+        {setAsides.length > 0 && (
+          <p className="text-xs text-muted-foreground mt-1">
+            {setAsides.length} selected
+          </p>
+        )}
       </div>
 
       <div>

@@ -114,6 +114,7 @@ impl Database {
                 CREATE INDEX IF NOT EXISTS idx_opp_active ON opportunities(active);
                 CREATE INDEX IF NOT EXISTS idx_opp_pop_state ON opportunities(pop_state_code);
                 CREATE INDEX IF NOT EXISTS idx_opp_naics_type ON opportunities(naics_code, opp_type);
+                CREATE INDEX IF NOT EXISTS idx_opp_response_deadline ON opportunities(response_deadline);
                 CREATE INDEX IF NOT EXISTS idx_contacts_notice ON contacts(notice_id);
 
                 CREATE TABLE IF NOT EXISTS sync_state (

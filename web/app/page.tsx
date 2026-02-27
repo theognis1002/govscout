@@ -18,6 +18,23 @@ export default async function Home({ searchParams }: PageProps) {
   const hasParams = Object.keys(params).length > 0;
   const effectiveParams = hasParams ? params : DEFAULT_PRESET.filters;
 
+  // Compute response deadline date range from shorthand (e.g. "3m" → today to today+3months)
+  let responseDateFrom: string | undefined;
+  let responseDateTo: string | undefined;
+  const responseDeadlineParam = typeof effectiveParams.response_deadline === "string" ? effectiveParams.response_deadline : undefined;
+  if (responseDeadlineParam) {
+    const match = responseDeadlineParam.match(/^(\d+)m$/);
+    if (match) {
+      const months = parseInt(match[1], 10);
+      const now = new Date();
+      const future = new Date(now);
+      future.setMonth(future.getMonth() + months);
+      const pad = (n: number) => n.toString().padStart(2, "0");
+      responseDateFrom = `${pad(now.getMonth() + 1)}/${pad(now.getDate())}/${now.getFullYear()}`;
+      responseDateTo = `${pad(future.getMonth() + 1)}/${pad(future.getDate())}/${future.getFullYear()}`;
+    }
+  }
+
   const filters = {
     search: typeof effectiveParams.search === "string" ? effectiveParams.search : undefined,
     naics_code: typeof effectiveParams.naics_code === "string" ? effectiveParams.naics_code : undefined,
@@ -25,6 +42,8 @@ export default async function Home({ searchParams }: PageProps) {
     set_aside: typeof effectiveParams.set_aside === "string" ? effectiveParams.set_aside : undefined,
     state: typeof effectiveParams.state === "string" ? effectiveParams.state : undefined,
     department: typeof effectiveParams.department === "string" ? effectiveParams.department : undefined,
+    response_deadline_from: responseDateFrom,
+    response_deadline_to: responseDateTo,
     active_only: effectiveParams.active_only === "true",
     limit: 25,
     offset: typeof effectiveParams.offset === "string" ? parseInt(effectiveParams.offset, 10) || 0 : 0,

@@ -15,6 +15,8 @@ export async function fetchOpportunities(
   if (filters.set_aside) params.set("set_aside", filters.set_aside);
   if (filters.state) params.set("state", filters.state);
   if (filters.department) params.set("department", filters.department);
+  if (filters.response_deadline_from) params.set("response_deadline_from", filters.response_deadline_from);
+  if (filters.response_deadline_to) params.set("response_deadline_to", filters.response_deadline_to);
   if (filters.active_only) params.set("active_only", "true");
   if (filters.limit) params.set("limit", filters.limit.toString());
   if (filters.offset !== undefined) params.set("offset", filters.offset.toString());
