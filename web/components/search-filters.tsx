@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
@@ -42,6 +42,13 @@ const RESPONSE_DEADLINE_OPTIONS = [
 ];
 
 export function SearchFilters({ stats }: { stats: StatsResponse }) {
+  const searchParams = useSearchParams();
+  // Key on searchParams so the inner component remounts (resetting all
+  // local state) whenever the URL changes — no useEffect needed.
+  return <SearchFiltersInner stats={stats} key={searchParams.toString()} />;
+}
+
+function SearchFiltersInner({ stats }: { stats: StatsResponse }) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -62,20 +69,6 @@ export function SearchFilters({ stats }: { stats: StatsResponse }) {
   const [department, setDepartment] = useState(searchParams.get("department") ?? "");
   const [responseDeadline, setResponseDeadline] = useState(searchParams.get("response_deadline") ?? "");
   const [activeOnly, setActiveOnly] = useState(searchParams.get("active_only") === "true");
-
-  useEffect(() => {
-    setSearch(searchParams.get("search") ?? "");
-    const naicsParam = searchParams.get("naics_code") ?? "";
-    setNaicsCodes(naicsParam ? naicsParam.split(",") : []);
-    const oppTypeParam = searchParams.get("opp_type") ?? "";
-    setOppTypes(oppTypeParam ? oppTypeParam.split(",") : []);
-    const setAsideParam = searchParams.get("set_aside") ?? "";
-    setSetAsides(setAsideParam ? setAsideParam.split(",") : []);
-    setState(searchParams.get("state") ?? "");
-    setDepartment(searchParams.get("department") ?? "");
-    setResponseDeadline(searchParams.get("response_deadline") ?? "");
-    setActiveOnly(searchParams.get("active_only") === "true");
-  }, [searchParams]);
 
   const toggleNaics = useCallback((code: string) => {
     setNaicsCodes((prev) =>
@@ -110,20 +103,26 @@ export function SearchFilters({ stats }: { stats: StatsResponse }) {
   }, [search, naicsCodes, oppTypes, setAsides, state, department, responseDeadline, activeOnly, router]);
 
   const clearFilters = useCallback(() => {
-    setSearch("");
-    setNaicsCodes([]);
-    setOppTypes([]);
-    setSetAsides([]);
-    setState("");
-    setDepartment("");
-    setResponseDeadline("");
-    setActiveOnly(false);
     router.push("/");
   }, [router]);
 
-  const topNaics = stats.naics_codes.slice(0, 50);
   const topDepts = stats.departments.slice(0, 50);
   const topStates = stats.states.slice(0, 50);
+
+  // Merge selected NAICS codes to the top, followed by the rest (up to 50 total)
+  const naicsList = useMemo(() => {
+    const selectedSet = new Set(naicsCodes);
+    const selected = stats.naics_codes.filter((n) => selectedSet.has(n.value));
+    const selectedValues = new Set(selected.map((n) => n.value));
+    // Add selected codes that aren't in stats (e.g. from preset/URL) with count 0
+    for (const code of naicsCodes) {
+      if (!selectedValues.has(code)) {
+        selected.push({ value: code, count: 0 });
+      }
+    }
+    const rest = stats.naics_codes.filter((n) => !selectedSet.has(n.value));
+    return [...selected, ...rest].slice(0, 50);
+  }, [stats.naics_codes, naicsCodes]);
 
   return (
     <div className="space-y-4">
@@ -183,7 +182,7 @@ export function SearchFilters({ stats }: { stats: StatsResponse }) {
       <div>
         <Label>NAICS Code</Label>
         <div className="max-h-48 overflow-y-auto border border-border rounded-none p-2 space-y-1">
-          {topNaics.map((n) => (
+          {naicsList.map((n) => (
             <div key={n.value} className="flex items-center gap-2">
               <Checkbox
                 id={`naics-${n.value}`}
@@ -203,28 +202,30 @@ export function SearchFilters({ stats }: { stats: StatsResponse }) {
         )}
       </div>
 
-      <div>
-        <Label>Set-Aside</Label>
-        <div className="max-h-48 overflow-y-auto border border-border rounded-none p-2 space-y-1">
-          {stats.set_asides.map((s) => (
-            <div key={s.value} className="flex items-center gap-2">
-              <Checkbox
-                id={`setaside-${s.value}`}
-                checked={setAsides.includes(s.value)}
-                onCheckedChange={() => toggleSetAside(s.value)}
-              />
-              <Label htmlFor={`setaside-${s.value}`} className="text-sm font-normal cursor-pointer">
-                {s.value}{SET_ASIDE_LABELS[s.value] ? ` — ${SET_ASIDE_LABELS[s.value]}` : ""} ({s.count})
-              </Label>
-            </div>
-          ))}
+      {stats.set_asides.length > 0 && (
+        <div>
+          <Label>Set-Aside</Label>
+          <div className="max-h-48 overflow-y-auto border border-border rounded-none p-2 space-y-1">
+            {stats.set_asides.map((s) => (
+              <div key={s.value} className="flex items-center gap-2">
+                <Checkbox
+                  id={`setaside-${s.value}`}
+                  checked={setAsides.includes(s.value)}
+                  onCheckedChange={() => toggleSetAside(s.value)}
+                />
+                <Label htmlFor={`setaside-${s.value}`} className="text-sm font-normal cursor-pointer">
+                  {s.value}{SET_ASIDE_LABELS[s.value] ? ` — ${SET_ASIDE_LABELS[s.value]}` : ""} ({s.count})
+                </Label>
+              </div>
+            ))}
+          </div>
+          {setAsides.length > 0 && (
+            <p className="text-xs text-muted-foreground mt-1">
+              {setAsides.length} selected
+            </p>
+          )}
         </div>
-        {setAsides.length > 0 && (
-          <p className="text-xs text-muted-foreground mt-1">
-            {setAsides.length} selected
-          </p>
-        )}
-      </div>
+      )}
 
       <div>
         <Label>State</Label>
