@@ -1,0 +1,126 @@
+{{define "alerts_form.html"}}
+{{template "layout_head" .}}
+<div class="page-header">
+<h1>New Saved Search</h1>
+</div>
+
+<a href="/alerts" style="display:inline-block;margin-bottom:1rem">&larr; Back to alerts</a>
+
+<div class="card">
+<form method="POST" action="/alerts">
+<div class="form-group">
+<label for="name">Name</label>
+<input type="text" id="name" name="name" required placeholder="e.g., Cloud Services - Small Business">
+</div>
+
+<div class="form-group">
+<label for="search_query">Search Query</label>
+<input type="text" id="search_query" name="search_query" placeholder="Search title, description...">
+</div>
+
+<div class="form-group">
+<label>NAICS Code</label>
+<div class="checkbox-group">
+{{if .Stats}}{{range .Stats.NAICSCodes}}
+<label class="checkbox-item">
+<input type="checkbox" name="naics_code" value="{{.Value}}">
+<span>{{naicsLabel .Value}} ({{.Count}})</span>
+</label>
+{{end}}{{end}}
+</div>
+</div>
+
+<div class="form-group">
+<label>Opportunity Type</label>
+<div class="checkbox-group">
+{{if .Stats}}{{range .Stats.OppTypes}}
+<label class="checkbox-item">
+<input type="checkbox" name="opp_type" value="{{.Value}}">
+<span>{{.Value}} ({{.Count}})</span>
+</label>
+{{end}}{{end}}
+</div>
+</div>
+
+<div class="form-group">
+<label>Set-Aside</label>
+<div class="checkbox-group">
+{{if .Stats}}{{range .Stats.SetAsides}}
+<label class="checkbox-item">
+<input type="checkbox" name="set_aside" value="{{.Value}}">
+<span>{{.Value}} ({{.Count}})</span>
+</label>
+{{end}}{{end}}
+</div>
+</div>
+
+<div class="form-group">
+<label>State</label>
+<div class="checkbox-group">
+{{if .Stats}}{{range .Stats.States}}
+<label class="checkbox-item">
+<input type="checkbox" name="state" value="{{.Value}}">
+<span>{{.Value}} ({{.Count}})</span>
+</label>
+{{end}}{{end}}
+</div>
+</div>
+
+<div class="form-group">
+<label>Department</label>
+<div class="checkbox-group checkbox-group-tall">
+{{if .Stats}}{{range .Stats.Departments}}
+<label class="checkbox-item">
+<input type="checkbox" name="department" value="{{.Value}}">
+<span>{{truncate .Value 50}} ({{.Count}})</span>
+</label>
+{{end}}{{end}}
+</div>
+</div>
+
+<div class="form-group">
+<label for="response_deadline">Response Deadline</label>
+<select id="response_deadline" name="response_deadline">
+<option value="">Any</option>
+<option value="1m">Within 1 month</option>
+<option value="3m">Within 3 months</option>
+<option value="6m">Within 6 months</option>
+<option value="12m">Within 12 months</option>
+</select>
+</div>
+
+<div class="form-group">
+<label for="include_keywords">Include Keywords (comma-separated)</label>
+<input type="text" id="include_keywords" name="include_keywords" placeholder="cloud, aws, azure">
+</div>
+
+<div class="form-group">
+<label for="exclude_keywords">Exclude Keywords (comma-separated)</label>
+<input type="text" id="exclude_keywords" name="exclude_keywords" placeholder="maintenance, janitorial">
+</div>
+
+<div class="form-group">
+<label for="notify_email">Notification Email (optional, comma-separated for multiple)</label>
+<input type="text" id="notify_email" name="notify_email" placeholder="you@example.com, team@example.com">
+</div>
+
+<div class="form-group form-check">
+<input type="checkbox" id="active_only" name="active_only" checked>
+<label for="active_only">Active opportunities only</label>
+</div>
+
+<div class="form-group form-check">
+<input type="checkbox" id="match_all" name="match_all">
+<label for="match_all">Require ALL keywords to match</label>
+</div>
+
+<div class="form-group form-check">
+<input type="checkbox" id="enabled" name="enabled" checked>
+<label for="enabled">Enabled</label>
+</div>
+
+<button type="submit" class="btn btn-primary" style="margin-top:.5rem">Create Saved Search</button>
+</form>
+</div>
+{{template "layout_foot" .}}
+{{end}}

@@ -1,0 +1,28 @@
+{{define "results.html"}}
+{{if .Opportunities}}
+{{range .Opportunities}}
+<a href="/opportunities/{{.ID}}" class="card" style="display:block;color:inherit;text-decoration:none">
+<div style="display:flex;justify-content:space-between;align-items:start;gap:.5rem">
+<div class="card-title">{{derefOr .Title "Untitled"}}</div>
+<span class="badge {{if eq .Active 1}}badge-active{{else}}badge-inactive{{end}}">{{activeLabel .Active}}</span>
+</div>
+<div class="card-meta">
+{{if .OppType}}<span class="badge badge-type">{{deref .OppType}}</span>{{end}}
+{{if .PostedDate}}<span>Posted: {{deref .PostedDate}}</span>{{end}}
+{{if .ResponseDeadline}}<span>Due: {{deref .ResponseDeadline}}</span>{{end}}
+{{if .NAICSCode}}<span>NAICS: {{deref .NAICSCode}}</span>{{end}}
+</div>
+<div class="card-meta">
+{{if .Department}}<span>{{deref .Department}}</span>{{end}}
+{{if .SolicitationNumber}}<span>Sol#: {{deref .SolicitationNumber}}</span>{{end}}
+{{if .PopStateName}}<span>{{deref .PopStateName}}</span>{{end}}
+</div>
+{{if .Description}}<div class="card-desc">{{stripHTML (deref .Description)}}</div>{{end}}
+</a>
+{{end}}
+
+{{template "pagination.html" .}}
+{{else}}
+<div class="empty">No opportunities found matching your criteria.</div>
+{{end}}
+{{end}}

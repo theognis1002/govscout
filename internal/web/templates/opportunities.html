@@ -1,0 +1,126 @@
+{{define "opportunities.html"}}
+{{template "layout_head" .}}
+<div class="page-header">
+<h1>Opportunities <span style="font-weight:400;font-size:1rem;color:#666">({{commaFmt .Total}} total)</span></h1>
+<a href="#" class="btn btn-sm export-btn" id="export-btn" onclick="exportCSV(event)">Export CSV</a>
+</div>
+<script>
+function exportCSV(e) {
+  e.preventDefault();
+  var form = document.querySelector('form[hx-get]');
+  var params = new URLSearchParams(new FormData(form));
+  window.location.href = '/opportunities/export.csv?' + params.toString();
+}
+</script>
+
+<div class="filter-tabs">
+<a href="/opportunities" class="filter-tab {{if not .ActiveFilterID}}active{{end}}">All</a>
+{{range .SavedFilters}}
+<a href="/opportunities?filter_id={{.ID}}" class="filter-tab {{if eq .ID $.ActiveFilterID}}active{{end}}">{{.Name}}</a>
+{{end}}
+<a href="/filters" class="filter-tab filter-tab-manage">Manage</a>
+</div>
+
+<form hx-get="/opportunities/partial" hx-target="#results" hx-push-url="true" hx-trigger="change" hx-include="[name]">
+<div class="layout">
+<aside class="sidebar">
+<div class="card">
+<div class="filter-section">
+<h3>Search</h3>
+<input type="text" name="search" value="{{.Filters.Search}}" placeholder="Title, sol #, or department..."
+  hx-get="/opportunities/partial" hx-target="#results" hx-trigger="keyup changed delay:300ms" hx-push-url="true">
+</div>
+
+<div class="filter-section">
+<h3>Type <span class="tooltip-icon" title="Opportunity types indicate the stage of a federal procurement">?</span></h3>
+<div class="checkbox-group">
+{{if .Stats}}{{range .Stats.OppTypes}}
+<label class="checkbox-item">
+<input type="checkbox" name="opp_type" value="{{.Value}}"
+  {{if containsCSV $.Filters.OppType .Value}}checked{{end}}>
+<span title="{{oppTypeDesc .Value}}">{{.Value}} ({{.Count}})</span>
+</label>
+{{end}}{{end}}
+</div>
+</div>
+
+<div class="filter-section">
+<h3>NAICS Code</h3>
+<div class="checkbox-group">
+{{if .Stats}}{{range .Stats.NAICSCodes}}
+<label class="checkbox-item">
+<input type="checkbox" name="naics_code" value="{{.Value}}"
+  {{if containsCSV $.Filters.NAICSCode .Value}}checked{{end}}>
+<span title="{{naicsLabel .Value}}">{{naicsLabel .Value}} ({{.Count}})</span>
+</label>
+{{end}}{{end}}
+</div>
+</div>
+
+<div class="filter-section">
+<h3>Set-Aside <span class="tooltip-icon" title="Set-asides reserve contracts for specific categories of small businesses">?</span></h3>
+<div class="checkbox-group">
+{{if .Stats}}{{range .Stats.SetAsides}}
+<label class="checkbox-item">
+<input type="checkbox" name="set_aside" value="{{.Value}}"
+  {{if containsCSV $.Filters.SetAside .Value}}checked{{end}}>
+<span title="{{setAsideDesc .Value}}">{{.Value}} ({{.Count}})</span>
+</label>
+{{end}}{{end}}
+</div>
+</div>
+
+<div class="filter-section">
+<h3>State</h3>
+<select name="state">
+<option value="">All States</option>
+{{if .Stats}}{{range .Stats.States}}
+<option value="{{.Value}}" {{if eq .Value $.Filters.State}}selected{{end}}>{{.Value}} ({{.Count}})</option>
+{{end}}{{end}}
+</select>
+</div>
+
+<div class="filter-section">
+<h3>Department</h3>
+<div class="checkbox-group checkbox-group-tall">
+{{if .Stats}}{{range .Stats.Departments}}
+<label class="checkbox-item">
+<input type="checkbox" name="department" value="{{.Value}}"
+  {{if containsCSV $.Filters.Department .Value}}checked{{end}}>
+<span>{{truncate .Value 40}} ({{.Count}})</span>
+</label>
+{{end}}{{end}}
+</div>
+</div>
+
+<div class="filter-section">
+<h3>Response Deadline</h3>
+<select name="response_deadline">
+<option value="">Any Time</option>
+<option value="1m" {{if eq .Filters.ResponseDeadline "1m"}}selected{{end}}>Within 1 Month</option>
+<option value="3m" {{if eq .Filters.ResponseDeadline "3m"}}selected{{end}}>Within 3 Months</option>
+<option value="6m" {{if eq .Filters.ResponseDeadline "6m"}}selected{{end}}>Within 6 Months</option>
+<option value="12m" {{if eq .Filters.ResponseDeadline "12m"}}selected{{end}}>Within 12 Months</option>
+</select>
+</div>
+
+<div class="filter-section">
+<div class="form-check">
+<input type="checkbox" name="active_only" id="active_only" value="on" {{if .Filters.ActiveOnly}}checked{{end}}>
+<label for="active_only">Active only</label>
+</div>
+</div>
+
+<div class="filter-section">
+<a href="/opportunities" class="btn btn-sm filter-clear">Clear All Filters</a>
+</div>
+</div>
+</aside>
+
+<div class="main" id="results">
+{{template "results.html" .}}
+</div>
+</div>
+</form>
+{{template "layout_foot" .}}
+{{end}}

@@ -1,0 +1,10 @@
+[Unit]
+Description=GovScout Sync (one-shot)
+After=network.target
+
+[Service]
+Type=oneshot
+User=govscout
+WorkingDirectory=/opt/govscout
+ExecStart=/opt/govscout/govscout sync
+EnvironmentFile=/opt/govscout/.env

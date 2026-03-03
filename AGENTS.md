@@ -1,30 +1,33 @@
 # Agent Guidelines for GovScout
 
 ## Code Style
-- Use `anyhow::Result` for all error handling — no custom error types
-- All API response structs derive `Deserialize, Serialize` with `#[serde(rename_all = "camelCase")]`
-- Keep all response fields as `Option<T>` since SAM.gov returns inconsistent data
-- Use `reqwest::blocking` — this is a synchronous CLI, not async
+- Standard Go conventions: `gofmt`, `go vet`
+- All SAM.gov API response fields are `*string` (nullable) — API returns inconsistent data
+- Use `map[string]any` for API response deserialization (flexible schema)
+- Error handling via standard `error` returns
 
 ## Testing
 ```bash
-cargo build                                    # Must compile cleanly
-cargo run -- search                            # Smoke test with defaults
-cargo run -- search --title "cloud" --limit 5  # Filtered search
-cargo run -- get <notice_id>                   # Detail view
-cargo run -- types                             # Reference table
+go build ./cmd/govscout          # Must compile cleanly
+go vet ./...                     # Must pass
+go test ./...                    # Run tests
+./govscout useradd --username admin --password test --admin
+./govscout serve                 # Start on :8080
+./govscout sync --dry-run        # Preview sync
 ```
 
 ## File Responsibilities
-- **main.rs**: Only CLI arg parsing and routing. No business logic.
-- **api.rs**: HTTP client, query construction, all serde types. No formatting/display.
-- **db.rs**: SQLite persistence. Schema init, upserts. No HTTP or display logic.
-- **display.rs**: All terminal output. No HTTP calls.
+- **cmd/govscout/main.go**: CLI arg parsing (serve/sync/useradd). No business logic.
+- **internal/samgov/**: HTTP client, API key rotation, response types. No DB or display.
+- **internal/db/**: SQLite persistence. Schema, upserts, queries. No HTTP.
+- **internal/sync/**: Sync orchestration (incremental + backfill). Uses samgov + db.
+- **internal/alerts/**: Keyword matching, webhook delivery. Runs after sync.
+- **internal/web/**: HTTP server, handlers, templates, auth. Read-only DB access (except admin sync).
 
 ## SAM.gov API Notes
 - Base URL: `https://api.sam.gov/opportunities/v2/search`
 - API key goes as `api_key` query parameter (not header)
-- Date format is `MM/DD/YYYY`
+- Date format is `MM/DD/YYYY` (Go layout: `"01/02/2006"`)
 - NAICS filter param is `ncode` (not `naics`)
-- The `get` subcommand uses the same search endpoint with `noticeid` param
-- Rate limits exist but are generous for CLI use
+- Rate limits: ~20 calls/day per key. Do not exceed --max-calls 18.
+- Key rotation on 429/401/403 via atomic index

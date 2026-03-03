@@ -2,127 +2,126 @@
 
 ## Overview
 
-Rust CLI tool that queries the SAM.gov Opportunities API v2 to search and view federal contract opportunities. API key stored in `.env` as `SAMGOV_API_KEY`.
+Web app that syncs federal contract opportunities from the SAM.gov API v2 and serves them via HTML templates + HTMX. Single binary, multi-user auth, saved search alerts. API key stored in `.env` as `SAMGOV_API_KEY`.
 
 ## Tech Stack
 
-- Language: Rust (2021 edition)
-- CLI framework: clap (derive)
-- HTTP: reqwest (blocking)
-- Serialization: serde / serde_json
-- Output: tabled (table formatting)
-- Dates: chrono
-- Errors: anyhow
-- Env: dotenvy
-- API server: axum, tokio, tower-http (CORS)
-- Frontend: Next.js (App Router), TypeScript, Tailwind CSS, shadcn/ui (neo-brutalism theme), bun
+- Language: Go 1.23+
+- Router: chi/v5
+- Database: SQLite via modernc.org/sqlite (pure Go, no CGO)
+- Templates: html/template + HTMX
+- Sessions: gorilla/securecookie
+- Passwords: golang.org/x/crypto/bcrypt
+- CSS: minimal plain CSS (no framework)
 
 ## Architecture
 
 ```
-src/
-├── main.rs      # CLI definition (clap derive), subcommand routing, date defaults
-├── lib.rs       # Library crate re-exporting modules
-├── api.rs       # SamGovClient, SearchParams, API response types (serde)
-├── db.rs        # SQLite persistence (rusqlite), schema init, upserts
-├── display.rs   # Output formatting (tabled tables, detail views, reference tables)
-├── sync.rs      # Daily sync logic (incremental + backfill with date windows)
-└── server.rs    # Axum REST API server (read-only SQLite access)
-
-web/                 # Next.js frontend (bun)
-├── app/
-│   ├── layout.tsx
-│   ├── page.tsx                    # Opportunities list + filters + pagination
-│   ├── login/page.tsx              # Login page (client component)
-│   ├── api/auth/login/route.ts     # POST login (sets JWT cookie)
-│   ├── api/auth/logout/route.ts    # POST logout (clears cookie)
-│   └── opportunities/[id]/page.tsx # Detail view
-├── components/
-│   ├── ui/                         # shadcn neo-brutalism components
-│   ├── logout-button.tsx           # Sign out button (client component)
-│   ├── opportunity-card.tsx
-│   ├── opportunity-detail.tsx
-│   ├── search-filters.tsx
-│   └── pagination.tsx
-├── middleware.ts                    # Auth gate — redirects unauthenticated to /login
-└── lib/
-    ├── api.ts                      # Typed fetch client
-    ├── auth.ts                     # JWT session helpers (jose)
-    └── types.ts                    # TS types matching Rust API DTOs
+cmd/govscout/main.go              # CLI: serve | sync | useradd
+internal/
+├── db/
+│   ├── db.go                     # Open (DSN pragmas, WAL), migrate
+│   ├── migrations/001_initial.sql # Full schema (go:embed)
+│   ├── opportunities.go          # QueryBuilder, upsert, list, detail, stats
+│   ├── users.go                  # User CRUD (bcrypt hashes)
+│   ├── searches.go               # SavedSearch CRUD
+│   ├── filters.go                # SavedFilter CRUD + seed defaults
+│   ├── alerts.go                 # Alert insert (dedupe), delivery tracking
+│   └── sync.go                   # sync_runs + backfill cursor (sync_state KV)
+├── samgov/
+│   ├── client.go                 # HTTP client, API key rotation (atomic), SearchWindow
+│   └── types.go                  # SAM.gov API response structs
+├── sync/
+│   └── sync.go                   # Two-phase: incremental (3d) + backfill (90d windows)
+├── alerts/
+│   ├── matcher.go                # Keyword matching + alert delivery
+│   └── email.go                  # Resend email delivery (rate-limited 1/day/search)
+└── web/
+    ├── server.go                 # Chi router, middleware stack
+    ├── handlers.go               # All HTTP handlers
+    ├── templates.go              # go:embed template loading + funcMap
+    ├── auth.go                   # securecookie sessions, RequireAuth/RequireAdmin middleware
+    ├── static/style.css          # Minimal CSS (embedded)
+    └── templates/                # All HTML templates (embedded)
+        ├── layout.html
+        ├── login.html
+        ├── opportunities.html
+        ├── opportunity.html
+        ├── partials/results.html
+        ├── partials/pagination.html
+        ├── alerts/list.html
+        ├── alerts/detail.html
+        ├── alerts/form.html
+        ├── filters/list.html
+        ├── filters/edit.html
+        ├── admin/sync.html
+        └── admin/users.html
 ```
 
 ## Build & Run
 
 ```bash
-cargo build
-cargo run --bin govscout -- search                                    # Auto-paginate all results (saves to DB)
-cargo run --bin govscout -- search --title "cloud" --naics 541512     # Filtered search, all pages
-cargo run --bin govscout -- search --limit 5                          # Single-page, max 5 results
-cargo run --bin govscout -- get <NOTICE_ID>
-cargo run --bin govscout -- types
-cargo run --bin govscout -- sync                              # Daily sync (incremental + backfill)
-cargo run --bin govscout -- sync --dry-run                    # Preview what would be fetched
-cargo run --bin govscout -- sync --max-calls 5               # Limit API calls for this run
-cargo run --bin govscout -- sync --from 01/01/2015            # Backfill from today toward a specific date
+go build ./cmd/govscout                        # Build binary
+./govscout serve                               # Start web server on :8080
+./govscout sync                                # Daily sync (incremental + backfill)
+./govscout sync --dry-run                      # Preview what would be fetched
+./govscout sync --max-calls 5                  # Limit API calls for this run
+./govscout sync --from 01/01/2015              # Backfill toward a specific date
+./govscout useradd --username admin --password secret --admin  # Create admin user
+./govscout passwd --username admin --password newpass          # Update user password
 ```
 
-## Web Development
+## Routes
 
-```bash
-# Terminal 1: Rust API server (port 3001)
-cargo run --bin govscout-server
+Public: `GET /login`, `POST /login`, `POST /logout`, `GET /static/*`, `GET /health`
 
-# Terminal 2: Next.js frontend (port 3000)
-cd web && bun dev
-```
+Auth required:
 
-API endpoints:
+- `GET /opportunities` — full page with sidebar filters + HTMX
+- `GET /opportunities/partial` — HTMX partial (results fragment)
+- `GET /opportunities/{id}` — detail view
+- `GET /alerts` — saved search list + recent alerts
+- `GET /alerts/new`, `POST /alerts` — create saved search
+- `GET /alerts/{id}`, `POST /alerts/{id}` — view/update saved search
+- `POST /alerts/{id}/toggle` — enable/disable
+- `GET /alerts/{id}/preview` — preview matching opportunities
+- `GET /filters` — list + create saved filters
+- `POST /filters` — create new filter
+- `GET /filters/{id}`, `POST /filters/{id}` — edit/update filter
+- `POST /filters/{id}/delete` — delete filter
 
-- `GET /api/opportunities` — paginated list with query filters (search, naics_code, opp_type, set_aside, state, department, active_only, limit, offset)
-- `GET /api/opportunities/:id` — full detail + contacts
-- `GET /api/stats` — filter options with counts
-- `GET /health` — health check
+Admin:
+
+- `POST /admin/sync` — trigger sync in background
+- `GET /admin/sync-runs` — sync history
+- `GET /admin/users`, `POST /admin/users`, `POST /admin/users/{id}/delete` — user management
 
 ## Lint & Format
 
 ```bash
-cargo fmt --check    # Check formatting
-cargo fmt            # Auto-format
-cargo clippy -- -D warnings  # Lint
+gofmt -l .            # Check formatting
+gofmt -w .            # Auto-format
+go vet ./...          # Lint
 ```
 
 ## Testing
 
 ```bash
-cargo test                                     # Run all unit tests (40 tests)
-cargo test --lib                               # Library unit tests (31 tests)
-cargo test display::tests                      # display.rs tests only
-cargo test api::tests                          # api.rs tests only
-cargo test db::tests                           # db.rs tests only
-cargo test sync::tests                         # sync.rs tests only
-cargo test --bin govscout-server               # server.rs tests only (QueryBuilder)
-```
-
-Smoke test with:
-
-```bash
-cargo build                                    # Must compile cleanly
-cargo run --bin govscout -- search                            # Auto-paginate all results
-cargo run --bin govscout -- search --title "cloud" --limit 5  # Single-page filtered search
-cargo run --bin govscout -- get <notice_id>                   # Detail view
-cargo run --bin govscout -- types                             # Reference table
+go test ./...         # Run all tests
+go build ./cmd/govscout  # Must compile cleanly
+go vet ./...          # Must pass
 ```
 
 ## Environment Variables
 
 See `.env.example`:
 
-- `SAMGOV_API_KEY` — SAM.gov API key (required for CLI). Supports comma-separated keys for rotation (e.g., `key1,key2,key3`)
+- `SAMGOV_API_KEY` — SAM.gov API key (required for sync). Supports comma-separated keys for rotation
+- `AUTH_SECRET` — Session cookie signing secret, 32+ random chars
 - `GOVSCOUT_DB` — SQLite database path (default: `./govscout.db`)
-- `PORT` — API server port (default: `3001`)
-- `ADMIN_USERNAME` — Web login username (required for frontend auth)
-- `ADMIN_PASSWORD` — Web login password (required for frontend auth)
-- `AUTH_SECRET` — JWT signing secret, 32+ random chars (required for frontend auth)
+- `PORT` — Web server port (default: `8080`)
+- `RESEND_API_KEY` — Resend API key for email alert delivery (optional)
+- `RESEND_FROM_EMAIL` — Sender address for alert emails (default: `GovScout <alerts@resend.dev>`)
 
 ## API Details
 
@@ -130,59 +129,45 @@ See `.env.example`:
 - Auth: `api_key` query parameter
 - Date format: `MM/DD/YYYY`
 - Key query params: `limit`, `offset`, `postedFrom`, `postedTo`, `title`, `ptype`, `ncode`, `state`, `typeOfSetAside`, `noticeid`
-- **Rate limiting**: SAM.gov enforces aggressive rate limits (~20 API calls/day per key). This is a hard platform constraint — do NOT increase `--max-calls` above 18 or attempt to work around rate limits. The sync command is carefully budgeted to stay within these limits (1-2 calls for incremental sync, remainder for backfill). Exceeding the limit results in 429 responses and temporary lockout. Multiple comma-separated keys in `SAMGOV_API_KEY` enable automatic rotation on 429/401/403 responses, multiplying the effective daily budget.
+- **Rate limiting**: SAM.gov enforces aggressive rate limits (~20 API calls/day per key). Do NOT increase `--max-calls` above 18. Multiple comma-separated keys enable automatic rotation on 429/401/403 responses.
 
 ## Key Design Decisions
 
-- Uses `reqwest::blocking` (not async) — simplicity for a CLI tool
-- All response fields are `Option<T>` — API returns inconsistent fields
-- `--json` flag on `get` command serializes raw API response
-- Default date range: 30 days ago to today
-- `search` auto-paginates all results by default (1000/page); `--limit N` for single-page
-- DB defaults to `./govscout.db` in current directory (override with `GOVSCOUT_DB` env var)
-- Frontend auth via JWT session cookie (`jose` library, edge-runtime compatible)
-- Next.js middleware protects all routes; `/login` and `/api/auth/*` are public
-- Backend port unexposed in Docker; only reachable through authenticated Next.js proxy
+- Single Go binary serves both web UI and handles sync
+- All API response fields are `*string` — API returns inconsistent fields
+- `active` column stored as INTEGER (1/0), converted from API's "Yes"/"No" at upsert time
+- `raw_json` column stores full API response for each opportunity
+- DB defaults to `./govscout.db` (override with `GOVSCOUT_DB`)
+- Sessions via securecookie (HttpOnly, SameSite=Lax, 24h max-age)
+- HTMX for live filtering without full page reloads
+- Saved searches with keyword matching run after each sync
+- SQLite driver: `modernc.org/sqlite` (pure Go, CGO_ENABLED=0)
+- Date comparison in SQL uses string manipulation (`substr`) to compare MM/DD/YYYY dates
 
-## Deployment / Cron
+## Deployment
 
-The `sync` command is designed for daily cron use:
-
-- **Incremental**: fetches last 3 days of opportunities (~1 API call) to stay current
-- **Backfill**: uses remaining API budget to fetch historical data in 90-day windows going backwards (~4 years/run)
-- **Rate limit safe**: stops gracefully on 429, saves progress, resumes next run
-- **Steady state**: ~1-2 API calls/day once backfill is complete
-
-Example cron: `0 2 * * * cd /path/to/govscout && ./target/release/govscout sync >> /var/log/govscout-sync.log 2>&1`
-
-## Docker
-
-### Development (`docker-compose.yml`)
+### Systemd
 
 ```bash
-docker compose up                    # Start both services
-docker compose down                  # Stop
+# Copy files
+cp systemd/govscout.service /etc/systemd/system/
+cp systemd/govscout-sync.service /etc/systemd/system/
+cp systemd/govscout-sync.timer /etc/systemd/system/
+
+# Enable
+systemctl enable --now govscout
+systemctl enable --now govscout-sync.timer
 ```
 
-- Backend: mounts `src/`, `Cargo.toml`, `Cargo.lock` into `rust:latest` and runs `cargo run`; rebuild manually with `docker compose restart backend` after code changes
-- Frontend: mounts `web/` into `oven/bun:1` and runs `bun dev`; Next.js HMR works out of the box
-- Cargo build cache and `node_modules` are persisted in named volumes
-- SQLite DB uses `./govscout.db` from the project root (bind-mounted)
-- `SAMGOV_API_KEY` is read from `.env` in the project root
-- Auth env vars (`ADMIN_USERNAME`, `ADMIN_PASSWORD`, `AUTH_SECRET`) passed to frontend service
+- `govscout.service` — web server as long-running service
+- `govscout-sync.service` — one-shot sync
+- `govscout-sync.timer` — daily at 2am, Persistent=true
 
-### Production (`docker-compose.prod.yml`)
+## Sync
 
-```bash
-docker compose -f docker-compose.prod.yml build   # Build images
-docker compose -f docker-compose.prod.yml up -d    # Start in background
-docker compose -f docker-compose.prod.yml down      # Stop
-```
+The `sync` command is designed for daily cron/timer use:
 
-- Backend: multi-stage build (`docker/Dockerfile.backend`) — compiles release binary, runs in slim Debian image
-- Frontend: multi-stage build (`docker/Dockerfile.frontend`) — builds Next.js standalone output, runs with `bun`
-- No source mounts or build caches; fully self-contained images
-- Frontend `depends_on` backend healthcheck before starting
-- Both services restart automatically (`unless-stopped`)
-
-See also: [AGENTS.md](AGENTS.md) for agent-specific guidance.
+- **Incremental**: fetches last 3 days of opportunities (~1 API call)
+- **Backfill**: uses remaining budget for historical data in 90-day windows
+- **Rate limit safe**: stops gracefully on 429, saves cursor, resumes next run
+- **Alert matching**: runs after sync to find new matches for saved searches

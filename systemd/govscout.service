@@ -1,0 +1,15 @@
+[Unit]
+Description=GovScout Web Server
+After=network.target
+
+[Service]
+Type=simple
+User=govscout
+WorkingDirectory=/opt/govscout
+ExecStart=/opt/govscout/govscout serve
+EnvironmentFile=/opt/govscout/.env
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

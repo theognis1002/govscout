@@ -1,0 +1,156 @@
+{{define "alerts_detail.html"}}
+{{template "layout_head" .}}
+{{with .Search}}
+<div class="page-header">
+<h1>{{.Name}}</h1>
+<div style="display:flex;gap:.5rem">
+<form method="POST" action="/alerts/{{.ID}}/toggle"><button type="submit" class="btn btn-sm">{{if .Enabled}}Disable{{else}}Enable{{end}}</button></form>
+<a href="/alerts/{{.ID}}/preview" class="btn btn-sm">Preview Matches</a>
+</div>
+</div>
+
+<a href="/alerts" style="display:inline-block;margin-bottom:1rem">&larr; Back to alerts</a>
+
+<div class="card" style="margin-bottom:1.5rem">
+<form method="POST" action="/alerts/{{.ID}}">
+<div class="form-group">
+<label for="name">Name</label>
+<input type="text" id="name" name="name" value="{{.Name}}" required>
+</div>
+
+<div class="form-group">
+<label for="search_query">Search Query</label>
+<input type="text" id="search_query" name="search_query" value="{{deref .SearchQuery}}">
+</div>
+
+<div class="form-group">
+<label>NAICS Code</label>
+<div class="checkbox-group">
+{{$naics := deref .NAICSCode}}
+{{if $.Stats}}{{range $.Stats.NAICSCodes}}
+<label class="checkbox-item">
+<input type="checkbox" name="naics_code" value="{{.Value}}" {{if containsCSV $naics .Value}}checked{{end}}>
+<span>{{naicsLabel .Value}} ({{.Count}})</span>
+</label>
+{{end}}{{end}}
+</div>
+</div>
+
+<div class="form-group">
+<label>Opportunity Type</label>
+<div class="checkbox-group">
+{{$oppType := deref .OppType}}
+{{if $.Stats}}{{range $.Stats.OppTypes}}
+<label class="checkbox-item">
+<input type="checkbox" name="opp_type" value="{{.Value}}" {{if containsCSV $oppType .Value}}checked{{end}}>
+<span>{{.Value}} ({{.Count}})</span>
+</label>
+{{end}}{{end}}
+</div>
+</div>
+
+<div class="form-group">
+<label>Set-Aside</label>
+<div class="checkbox-group">
+{{$setAside := deref .SetAside}}
+{{if $.Stats}}{{range $.Stats.SetAsides}}
+<label class="checkbox-item">
+<input type="checkbox" name="set_aside" value="{{.Value}}" {{if containsCSV $setAside .Value}}checked{{end}}>
+<span>{{.Value}} ({{.Count}})</span>
+</label>
+{{end}}{{end}}
+</div>
+</div>
+
+<div class="form-group">
+<label>State</label>
+<div class="checkbox-group">
+{{$state := deref .State}}
+{{if $.Stats}}{{range $.Stats.States}}
+<label class="checkbox-item">
+<input type="checkbox" name="state" value="{{.Value}}" {{if containsCSV $state .Value}}checked{{end}}>
+<span>{{.Value}} ({{.Count}})</span>
+</label>
+{{end}}{{end}}
+</div>
+</div>
+
+<div class="form-group">
+<label>Department</label>
+<div class="checkbox-group checkbox-group-tall">
+{{$dept := deref .Department}}
+{{if $.Stats}}{{range $.Stats.Departments}}
+<label class="checkbox-item">
+<input type="checkbox" name="department" value="{{.Value}}" {{if containsCSV $dept .Value}}checked{{end}}>
+<span>{{truncate .Value 50}} ({{.Count}})</span>
+</label>
+{{end}}{{end}}
+</div>
+</div>
+
+<div class="form-group">
+<label for="response_deadline">Response Deadline</label>
+{{$dl := deref .ResponseDeadline}}
+<select id="response_deadline" name="response_deadline">
+<option value="">Any</option>
+<option value="1m" {{if eq $dl "1m"}}selected{{end}}>Within 1 month</option>
+<option value="3m" {{if eq $dl "3m"}}selected{{end}}>Within 3 months</option>
+<option value="6m" {{if eq $dl "6m"}}selected{{end}}>Within 6 months</option>
+<option value="12m" {{if eq $dl "12m"}}selected{{end}}>Within 12 months</option>
+</select>
+</div>
+
+<div class="form-group">
+<label for="include_keywords">Include Keywords</label>
+<input type="text" id="include_keywords" name="include_keywords" value="{{deref .IncludeKeywords}}">
+</div>
+<div class="form-group">
+<label for="exclude_keywords">Exclude Keywords</label>
+<input type="text" id="exclude_keywords" name="exclude_keywords" value="{{deref .ExcludeKeywords}}">
+</div>
+
+<div class="form-group">
+<label for="notify_email">Notification Email (comma-separated for multiple)</label>
+<input type="text" id="notify_email" name="notify_email" value="{{deref .NotifyEmail}}">
+</div>
+
+<div style="display:flex;gap:1.5rem;margin:.5rem 0">
+<div class="form-check"><input type="checkbox" id="active_only" name="active_only" {{boolChecked .ActiveOnly}}><label for="active_only">Active only</label></div>
+<div class="form-check"><input type="checkbox" id="match_all" name="match_all" {{boolChecked .MatchAll}}><label for="match_all">Match all keywords</label></div>
+<div class="form-check"><input type="checkbox" id="enabled" name="enabled" {{boolChecked .Enabled}}><label for="enabled">Enabled</label></div>
+</div>
+
+<button type="submit" class="btn btn-primary" style="margin-top:.5rem">Update</button>
+</form>
+</div>
+{{end}}
+
+{{if .Preview}}
+<h2 style="font-size:1.1rem;margin-bottom:.75rem">Preview Matches ({{len .Preview}})</h2>
+{{range .Preview}}
+<a href="/opportunities/{{.ID}}" class="card" style="display:block;color:inherit;text-decoration:none">
+<div class="card-title">{{derefOr .Title "Untitled"}}</div>
+<div class="card-meta">
+{{if .OppType}}<span class="badge badge-type">{{deref .OppType}}</span>{{end}}
+{{if .PostedDate}}<span>{{deref .PostedDate}}</span>{{end}}
+{{if .Department}}<span>{{deref .Department}}</span>{{end}}
+</div>
+</a>
+{{end}}
+{{end}}
+
+{{if .Alerts}}
+<h2 style="font-size:1.1rem;margin-bottom:.75rem">Matched Alerts ({{.AlertTotal}})</h2>
+{{range .Alerts}}
+<a href="/opportunities/{{.OpportunityID}}" class="card" style="display:block;color:inherit;text-decoration:none">
+<div class="card-title">{{derefOr .OppTitle "Untitled"}}</div>
+<div class="card-meta">
+{{if .OppType}}<span class="badge badge-type">{{deref .OppType}}</span>{{end}}
+{{if .PostedDate}}<span>{{deref .PostedDate}}</span>{{end}}
+<span>Matched: {{.CreatedAt}}</span>
+</div>
+</a>
+{{end}}
+{{end}}
+{{template "layout_foot" .}}
+{{end}}

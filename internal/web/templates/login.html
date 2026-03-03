@@ -1,0 +1,30 @@
+{{define "login.html"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Login - GovScout</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="container">
+<div class="login-box">
+<div class="card" style="margin-top:4rem">
+<h1 style="font-size:1.5rem;margin-bottom:1rem;text-align:center">GovScout</h1>
+{{if .Error}}<div class="alert-box alert-error">{{.Error}}</div>{{end}}
+<form method="POST" action="/login">
+<div class="form-group">
+<label for="username">Username</label>
+<input type="text" id="username" name="username" required autofocus>
+</div>
+<div class="form-group">
+<label for="password">Password</label>
+<input type="password" id="password" name="password" required>
+</div>
+<button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem">Sign in</button>
+</form>
+</div>
+</div>
+</div>
+</body>
+</html>{{end}}

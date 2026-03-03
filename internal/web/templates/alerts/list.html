@@ -1,0 +1,43 @@
+{{define "alerts_list.html"}}
+{{template "layout_head" .}}
+<div class="page-header">
+<h1>My Alerts</h1>
+<a href="/alerts/new" class="btn btn-primary">New Saved Search</a>
+</div>
+
+{{if .Searches}}
+<h2 style="font-size:1.1rem;margin-bottom:.75rem">Saved Searches</h2>
+{{range .Searches}}
+<a href="/alerts/{{.ID}}" class="card" style="display:block;color:inherit;text-decoration:none">
+<div style="display:flex;justify-content:space-between;align-items:center">
+<div class="card-title">{{.Name}}</div>
+<span class="badge {{if .Enabled}}badge-active{{else}}badge-inactive{{end}}">{{if .Enabled}}Enabled{{else}}Disabled{{end}}</span>
+</div>
+<div class="card-meta">
+{{if .NAICSCode}}<span>NAICS: {{deref .NAICSCode}}</span>{{end}}
+{{if .OppType}}<span>Type: {{deref .OppType}}</span>{{end}}
+{{if .State}}<span>State: {{deref .State}}</span>{{end}}
+{{if .IncludeKeywords}}<span>Keywords: {{deref .IncludeKeywords}}</span>{{end}}
+</div>
+</a>
+{{end}}
+{{else}}
+<div class="empty">No saved searches yet. Create one to start receiving alerts.</div>
+{{end}}
+
+{{if .Alerts}}
+<h2 style="font-size:1.1rem;margin:1.5rem 0 .75rem">Recent Alerts</h2>
+{{range .Alerts}}
+<a href="/opportunities/{{.OpportunityID}}" class="card" style="display:block;color:inherit;text-decoration:none">
+<div class="card-title">{{derefOr .OppTitle "Untitled"}}</div>
+<div class="card-meta">
+<span>Search: {{.SearchName}}</span>
+{{if .OppType}}<span class="badge badge-type">{{deref .OppType}}</span>{{end}}
+{{if .PostedDate}}<span>{{deref .PostedDate}}</span>{{end}}
+<span>Matched: {{.CreatedAt}}</span>
+</div>
+</a>
+{{end}}
+{{end}}
+{{template "layout_foot" .}}
+{{end}}

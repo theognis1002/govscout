@@ -1,0 +1,81 @@
+{{define "filters_edit.html"}}
+{{template "layout_head" .}}
+<div class="page-header">
+<h1>Edit Filter</h1>
+</div>
+
+<a href="/filters" style="display:inline-block;margin-bottom:1rem">&larr; Back to filters</a>
+
+<div class="card">
+<form method="POST" action="/filters/{{.Filter.ID}}">
+<div class="form-group">
+<label for="name">Name</label>
+<input type="text" id="name" name="name" value="{{.Filter.Name}}" required>
+</div>
+
+<div class="form-group">
+<label for="search_query">Search Query</label>
+<input type="text" id="search_query" name="search_query" value="{{deref .Filter.SearchQuery}}">
+</div>
+
+<div class="form-group">
+<label for="naics_code">NAICS Code(s)</label>
+<input type="text" id="naics_code" name="naics_code" value="{{deref .Filter.NAICSCode}}">
+</div>
+
+<div class="form-group">
+<label for="opp_type">Opportunity Type</label>
+<select id="opp_type" name="opp_type">
+<option value="">Any</option>
+{{if .Stats}}{{range .Stats.OppTypes}}
+<option value="{{.Value}}" {{if eq .Value (deref $.Filter.OppType)}}selected{{end}}>{{.Value}} ({{.Count}})</option>
+{{end}}{{end}}
+</select>
+</div>
+
+<div class="form-group">
+<label for="set_aside">Set-Aside</label>
+<input type="text" id="set_aside" name="set_aside" value="{{deref .Filter.SetAside}}">
+</div>
+
+<div class="form-group">
+<label for="state">State</label>
+<select id="state" name="state">
+<option value="">Any</option>
+{{if .Stats}}{{range .Stats.States}}
+<option value="{{.Value}}" {{if eq .Value (deref $.Filter.State)}}selected{{end}}>{{.Value}} ({{.Count}})</option>
+{{end}}{{end}}
+</select>
+</div>
+
+<div class="form-group">
+<label for="department">Department</label>
+<select id="department" name="department">
+<option value="">Any</option>
+{{if .Stats}}{{range .Stats.Departments}}
+<option value="{{.Value}}" {{if eq .Value (deref $.Filter.Department)}}selected{{end}}>{{truncate .Value 50}} ({{.Count}})</option>
+{{end}}{{end}}
+</select>
+</div>
+
+<div class="form-group">
+<label for="response_deadline">Response Deadline</label>
+<select id="response_deadline" name="response_deadline">
+<option value="">Any Time</option>
+<option value="1m" {{if eq (deref .Filter.ResponseDeadline) "1m"}}selected{{end}}>Within 1 Month</option>
+<option value="3m" {{if eq (deref .Filter.ResponseDeadline) "3m"}}selected{{end}}>Within 3 Months</option>
+<option value="6m" {{if eq (deref .Filter.ResponseDeadline) "6m"}}selected{{end}}>Within 6 Months</option>
+<option value="12m" {{if eq (deref .Filter.ResponseDeadline) "12m"}}selected{{end}}>Within 12 Months</option>
+</select>
+</div>
+
+<div class="form-group form-check">
+<input type="checkbox" id="active_only" name="active_only" {{boolChecked .Filter.ActiveOnly}}>
+<label for="active_only">Active opportunities only</label>
+</div>
+
+<button type="submit" class="btn btn-primary" style="margin-top:.5rem">Save Changes</button>
+</form>
+</div>
+{{template "layout_foot" .}}
+{{end}}

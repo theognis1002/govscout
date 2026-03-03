@@ -1,0 +1,101 @@
+{{define "opportunity.html"}}
+{{template "layout_head" .}}
+{{with .Detail}}
+<div class="page-header">
+<h1>{{derefOr .Opp.Title "Untitled Opportunity"}}</h1>
+<span class="badge {{if eq .Opp.Active 1}}badge-active{{else}}badge-inactive{{end}}">{{activeLabel .Opp.Active}}</span>
+</div>
+
+<a href="/opportunities" style="display:inline-block;margin-bottom:1rem">&larr; Back to list</a>
+
+<div class="card">
+<div class="detail-section">
+<h2>Basic Information</h2>
+<dl class="detail-grid">
+<dt>Notice ID</dt><dd>{{.Opp.ID}}</dd>
+{{if .Opp.SolicitationNumber}}<dt>Solicitation #</dt><dd>{{deref .Opp.SolicitationNumber}}</dd>{{end}}
+{{if .Opp.OppType}}<dt>Type</dt><dd><span class="badge badge-type">{{deref .Opp.OppType}}</span></dd>{{end}}
+{{if .Opp.BaseType}}<dt>Base Type</dt><dd>{{deref .Opp.BaseType}}</dd>{{end}}
+{{if .Opp.SetAside}}<dt>Set-Aside</dt><dd>{{deref .Opp.SetAside}} {{if .Opp.SetAsideDescription}}- {{deref .Opp.SetAsideDescription}}{{end}}</dd>{{end}}
+{{if .Opp.NAICSCode}}<dt>NAICS Code</dt><dd>{{deref .Opp.NAICSCode}}</dd>{{end}}
+{{if .Opp.ClassificationCode}}<dt>Classification</dt><dd>{{deref .Opp.ClassificationCode}}</dd>{{end}}
+</dl>
+</div>
+
+<div class="detail-section">
+<h2>Organization</h2>
+<dl class="detail-grid">
+{{if .Opp.Department}}<dt>Department</dt><dd>{{deref .Opp.Department}}</dd>{{end}}
+{{if .Opp.SubTier}}<dt>Sub-Tier</dt><dd>{{deref .Opp.SubTier}}</dd>{{end}}
+{{if .Opp.Office}}<dt>Office</dt><dd>{{deref .Opp.Office}}</dd>{{end}}
+{{if .Opp.FullParentPathName}}<dt>Full Path</dt><dd>{{deref .Opp.FullParentPathName}}</dd>{{end}}
+</dl>
+</div>
+
+<div class="detail-section">
+<h2>Dates</h2>
+<dl class="detail-grid">
+{{if .Opp.PostedDate}}<dt>Posted</dt><dd>{{deref .Opp.PostedDate}}</dd>{{end}}
+{{if .Opp.ResponseDeadline}}<dt>Response Deadline</dt><dd>{{deref .Opp.ResponseDeadline}}</dd>{{end}}
+{{if .Opp.ArchiveDate}}<dt>Archive Date</dt><dd>{{deref .Opp.ArchiveDate}}</dd>{{end}}
+</dl>
+</div>
+
+{{if or .Opp.PopStateName .Opp.PopCityName .Opp.PopCountryName .Opp.PopZip}}
+<div class="detail-section">
+<h2>Place of Performance</h2>
+<dl class="detail-grid">
+{{if .Opp.PopStateName}}<dt>State</dt><dd>{{deref .Opp.PopStateName}}</dd>{{end}}
+{{if .Opp.PopCityName}}<dt>City</dt><dd>{{deref .Opp.PopCityName}}</dd>{{end}}
+{{if .Opp.PopCountryName}}<dt>Country</dt><dd>{{deref .Opp.PopCountryName}}</dd>{{end}}
+{{if .Opp.PopZip}}<dt>ZIP</dt><dd>{{deref .Opp.PopZip}}</dd>{{end}}
+</dl>
+</div>
+{{end}}
+
+{{if .Contacts}}
+<div class="detail-section">
+<h2>Contacts</h2>
+{{range .Contacts}}
+<div style="margin-bottom:.75rem;padding:.5rem;background:#f5f5f5;border-radius:4px">
+{{if .FullName}}<strong>{{deref .FullName}}</strong>{{end}}
+{{if .Title}}<span style="color:#666"> - {{deref .Title}}</span>{{end}}
+{{if .ContactType}}<span class="badge" style="margin-left:.5rem">{{deref .ContactType}}</span>{{end}}
+<br>
+{{if .Email}}<a href="mailto:{{deref .Email}}">{{deref .Email}}</a>{{end}}
+{{if .Phone}}<span style="margin-left:.5rem">{{deref .Phone}}</span>{{end}}
+</div>
+{{end}}
+</div>
+{{end}}
+
+{{if or .Opp.AwardAmount .Opp.AwardeeName}}
+<div class="detail-section">
+<h2>Award</h2>
+<dl class="detail-grid">
+{{if .Opp.AwardAmount}}<dt>Amount</dt><dd>{{deref .Opp.AwardAmount}}</dd>{{end}}
+{{if .Opp.AwardDate}}<dt>Date</dt><dd>{{deref .Opp.AwardDate}}</dd>{{end}}
+{{if .Opp.AwardNumber}}<dt>Number</dt><dd>{{deref .Opp.AwardNumber}}</dd>{{end}}
+{{if .Opp.AwardeeName}}<dt>Awardee</dt><dd>{{deref .Opp.AwardeeName}}</dd>{{end}}
+{{if .Opp.AwardeeUEI}}<dt>UEI</dt><dd>{{deref .Opp.AwardeeUEI}}</dd>{{end}}
+</dl>
+</div>
+{{end}}
+
+{{if .Opp.UILink}}
+<div class="detail-section">
+<h2>Links</h2>
+<a href="{{deref .Opp.UILink}}" target="_blank" rel="noopener" class="btn btn-primary">View on SAM.gov</a>
+</div>
+{{end}}
+
+{{if .Opp.Description}}
+<div class="detail-section">
+<h2>Description</h2>
+<div style="white-space:pre-wrap;font-size:.9rem;max-height:600px;overflow-y:auto">{{stripHTML (deref .Opp.Description)}}</div>
+</div>
+{{end}}
+</div>
+{{end}}
+{{template "layout_foot" .}}
+{{end}}

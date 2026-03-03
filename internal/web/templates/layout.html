@@ -1,0 +1,32 @@
+{{define "layout_head"}}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GovScout</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="https://unpkg.com/htmx.org@2.0.4" integrity="sha384-HGfztofotfshcF7+8n44JQL2oJmowVChPTg48S+jvZoztPfvwD79OC/LTtG6dMp+" crossorigin="anonymous"></script>
+</head>
+<body>
+<nav>
+<div class="container">
+<a href="/opportunities" class="brand">GovScout</a>
+<div class="nav-links">
+<a href="/opportunities">Opportunities</a>
+<a href="/alerts">My Alerts</a>
+{{if .User}}{{if .User.IsAdmin}}<a href="/admin/sync-runs">Admin</a>{{end}}
+<form method="POST" action="/logout" style="display:inline">
+<button type="submit" class="btn btn-logout">Sign out</button>
+</form>
+{{end}}
+</div>
+</div>
+</nav>
+<div class="container page">
+{{end}}
+
+{{define "layout_foot"}}
+</div>
+</body>
+</html>
+{{end}}

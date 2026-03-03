@@ -1,0 +1,56 @@
+{{define "admin_users.html"}}
+{{template "layout_head" .}}
+<div class="page-header">
+<h1>Users</h1>
+<a href="/admin/sync-runs" class="btn">Sync History</a>
+</div>
+
+{{if .Error}}<div class="alert-box alert-error">{{.Error}}</div>{{end}}
+
+<div class="card" style="margin-bottom:1.5rem">
+<h2 style="font-size:1rem;margin-bottom:.75rem">Create User</h2>
+<form method="POST" action="/admin/users">
+<div style="display:flex;gap:.75rem;align-items:end;flex-wrap:wrap">
+<div class="form-group" style="margin-bottom:0">
+<label for="username">Username</label>
+<input type="text" id="username" name="username" required>
+</div>
+<div class="form-group" style="margin-bottom:0">
+<label for="password">Password</label>
+<input type="password" id="password" name="password" required>
+</div>
+<div class="form-check">
+<input type="checkbox" id="is_admin" name="is_admin">
+<label for="is_admin">Admin</label>
+</div>
+<button type="submit" class="btn btn-primary btn-sm">Create</button>
+</div>
+</form>
+</div>
+
+{{if .Users}}
+<table>
+<thead>
+<tr><th>ID</th><th>Username</th><th>Admin</th><th>Created</th><th></th></tr>
+</thead>
+<tbody>
+{{range .Users}}
+<tr>
+<td>{{.ID}}</td>
+<td>{{.Username}}</td>
+<td>{{if .IsAdmin}}Yes{{else}}No{{end}}</td>
+<td>{{.CreatedAt}}</td>
+<td>
+<form method="POST" action="/admin/users/{{.ID}}/delete" onsubmit="return confirm('Delete user {{.Username}}?')">
+<button type="submit" class="btn btn-danger btn-sm">Delete</button>
+</form>
+</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<div class="empty">No users found.</div>
+{{end}}
+{{template "layout_foot" .}}
+{{end}}

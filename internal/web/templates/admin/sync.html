@@ -1,0 +1,36 @@
+{{define "admin_sync.html"}}
+{{template "layout_head" .}}
+<div class="page-header">
+<h1>Sync History</h1>
+<div style="display:flex;gap:.5rem;align-items:center">
+<a href="/admin/users" class="btn">Users</a>
+<form method="POST" action="/admin/sync" style="display:flex"><button type="submit" class="btn btn-primary">Run Sync Now</button></form>
+</div>
+</div>
+
+{{if .Runs}}
+<table>
+<thead>
+<tr><th>ID</th><th>Context</th><th>From</th><th>To</th><th>API Calls</th><th>Records</th><th>Rate Limited</th><th>Started</th><th>Error</th></tr>
+</thead>
+<tbody>
+{{range .Runs}}
+<tr>
+<td>{{.ID}}</td>
+<td>{{.Context}}</td>
+<td>{{deref .PostedFrom}}</td>
+<td>{{deref .PostedTo}}</td>
+<td>{{.APICalls}}</td>
+<td>{{.RecordsFetched}}</td>
+<td>{{if .RateLimited}}Yes{{else}}No{{end}}</td>
+<td>{{.StartedAt}}</td>
+<td>{{derefOr .ErrorMessage ""}}</td>
+</tr>
+{{end}}
+</tbody>
+</table>
+{{else}}
+<div class="empty">No sync runs yet. Click "Run Sync Now" to start.</div>
+{{end}}
+{{template "layout_foot" .}}
+{{end}}

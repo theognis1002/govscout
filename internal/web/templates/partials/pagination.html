@@ -1,0 +1,44 @@
+{{define "pagination.html"}}
+{{if gt .PageCount 1}}
+<div class="pagination">
+{{$current := .CurrentPage}}
+{{$total := .PageCount}}
+{{$limit := .Filters.Limit}}
+{{$search := .Filters.Search}}
+{{$naics := .Filters.NAICSCode}}
+{{$opp := .Filters.OppType}}
+{{$set := .Filters.SetAside}}
+{{$state := .Filters.State}}
+{{$dept := .Filters.Department}}
+
+{{if gt $current 1}}
+<a href="?page={{sub $current 1}}&limit={{$limit}}&search={{$search}}&naics_code={{$naics}}&opp_type={{$opp}}&set_aside={{$set}}&state={{$state}}&department={{$dept}}"
+   hx-get="/opportunities/partial?page={{sub $current 1}}&limit={{$limit}}&search={{$search}}&naics_code={{$naics}}&opp_type={{$opp}}&set_aside={{$set}}&state={{$state}}&department={{$dept}}"
+   hx-target="#results" hx-push-url="true">&laquo;</a>
+{{end}}
+
+{{range seq $total}}
+{{if le . 7}}
+<a href="?page={{.}}&limit={{$limit}}&search={{$search}}&naics_code={{$naics}}&opp_type={{$opp}}&set_aside={{$set}}&state={{$state}}&department={{$dept}}"
+   hx-get="/opportunities/partial?page={{.}}&limit={{$limit}}&search={{$search}}&naics_code={{$naics}}&opp_type={{$opp}}&set_aside={{$set}}&state={{$state}}&department={{$dept}}"
+   hx-target="#results" hx-push-url="true"
+   class="{{if eq . $current}}active{{end}}">{{.}}</a>
+{{end}}
+{{end}}
+
+{{if gt $total 7}}
+<span>...</span>
+<a href="?page={{$total}}&limit={{$limit}}&search={{$search}}&naics_code={{$naics}}&opp_type={{$opp}}&set_aside={{$set}}&state={{$state}}&department={{$dept}}"
+   hx-get="/opportunities/partial?page={{$total}}&limit={{$limit}}&search={{$search}}&naics_code={{$naics}}&opp_type={{$opp}}&set_aside={{$set}}&state={{$state}}&department={{$dept}}"
+   hx-target="#results" hx-push-url="true"
+   class="{{if eq $total $current}}active{{end}}">{{$total}}</a>
+{{end}}
+
+{{if lt $current $total}}
+<a href="?page={{add $current 1}}&limit={{$limit}}&search={{$search}}&naics_code={{$naics}}&opp_type={{$opp}}&set_aside={{$set}}&state={{$state}}&department={{$dept}}"
+   hx-get="/opportunities/partial?page={{add $current 1}}&limit={{$limit}}&search={{$search}}&naics_code={{$naics}}&opp_type={{$opp}}&set_aside={{$set}}&state={{$state}}&department={{$dept}}"
+   hx-target="#results" hx-push-url="true">&raquo;</a>
+{{end}}
+</div>
+{{end}}
+{{end}}
