@@ -132,13 +132,20 @@ func Run(database *sql.DB, client *samgov.Client, opts Options) error {
 	return nil
 }
 
+func parseFlexibleDate(s string) (time.Time, error) {
+	if t, err := time.Parse(dateFmt, s); err == nil {
+		return t, nil
+	}
+	return time.Parse("2006-01-02", s)
+}
+
 func resolveBackfillCursor(database *sql.DB, today time.Time) (time.Time, error) {
 	cursorStr, err := db.GetSyncState(database, "backfill_cursor")
 	if err != nil {
 		return time.Time{}, err
 	}
 	if cursorStr != "" {
-		return time.Parse(dateFmt, cursorStr)
+		return parseFlexibleDate(cursorStr)
 	}
 
 	earliest, err := db.GetEarliestPostedDate(database)
@@ -146,7 +153,7 @@ func resolveBackfillCursor(database *sql.DB, today time.Time) (time.Time, error)
 		return time.Time{}, err
 	}
 	if earliest != "" {
-		return time.Parse(dateFmt, earliest)
+		return parseFlexibleDate(earliest)
 	}
 
 	return today.AddDate(0, 0, -incrementalDays), nil
