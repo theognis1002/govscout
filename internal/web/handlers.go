@@ -37,6 +37,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.setSession(w, user)
+	setFlash(w, "success", "Signed in")
 	http.Redirect(w, r, "/opportunities", http.StatusFound)
 }
 
@@ -258,6 +259,7 @@ func (s *Server) handleAlertCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", 500)
 		return
 	}
+	setFlash(w, "success", "Alert created")
 	http.Redirect(w, r, fmt.Sprintf("/alerts/%d", id), http.StatusFound)
 }
 
@@ -336,6 +338,7 @@ func (s *Server) handleAlertUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", 500)
 		return
 	}
+	setFlash(w, "success", "Alert updated")
 	http.Redirect(w, r, fmt.Sprintf("/alerts/%d", id), http.StatusFound)
 }
 
@@ -363,6 +366,7 @@ func (s *Server) handleAlertToggle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", 500)
 		return
 	}
+	setFlash(w, "success", "Alert toggled")
 	http.Redirect(w, r, fmt.Sprintf("/alerts/%d", id), http.StatusFound)
 }
 
@@ -436,6 +440,7 @@ func (s *Server) handleFilterCreate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", 500)
 		return
 	}
+	setFlash(w, "success", "Filter created")
 	http.Redirect(w, r, "/filters", http.StatusFound)
 }
 
@@ -491,6 +496,7 @@ func (s *Server) handleFilterUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", 500)
 		return
 	}
+	setFlash(w, "success", "Filter updated")
 	http.Redirect(w, r, "/filters", http.StatusFound)
 }
 
@@ -502,6 +508,7 @@ func (s *Server) handleFilterDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	user := getUser(r)
 	db.DeleteSavedFilter(s.db, id, user.ID)
+	setFlash(w, "success", "Filter deleted")
 	http.Redirect(w, r, "/filters", http.StatusFound)
 }
 
@@ -509,7 +516,8 @@ func (s *Server) handleFilterDelete(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleAdminSync(w http.ResponseWriter, r *http.Request) {
 	if !s.syncing.CompareAndSwap(false, true) {
-		http.Error(w, "Sync already in progress", http.StatusConflict)
+		setFlash(w, "error", "Sync already in progress")
+		http.Redirect(w, r, "/admin/sync-runs", http.StatusFound)
 		return
 	}
 
@@ -534,6 +542,7 @@ func (s *Server) handleAdminSync(w http.ResponseWriter, r *http.Request) {
 		}
 		alerts.RunMatcher(s.db)
 	}()
+	setFlash(w, "success", "Sync started")
 	http.Redirect(w, r, "/admin/sync-runs", http.StatusFound)
 }
 
@@ -586,6 +595,7 @@ func (s *Server) handleAdminCreateUser(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	setFlash(w, "success", "User created")
 	http.Redirect(w, r, "/admin/users", http.StatusFound)
 }
 
@@ -600,12 +610,27 @@ func (s *Server) handleAdminDeleteUser(w http.ResponseWriter, r *http.Request) {
 	// Prevent self-deletion
 	user := getUser(r)
 	if user.ID == id {
-		http.Error(w, "Cannot delete yourself", 400)
+		setFlash(w, "error", "Cannot delete yourself")
+		http.Redirect(w, r, "/admin/users", http.StatusFound)
 		return
 	}
 
 	db.DeleteUser(s.db, id)
+	setFlash(w, "success", "User deleted")
 	http.Redirect(w, r, "/admin/users", http.StatusFound)
+}
+
+// Flash messages
+
+func setFlash(w http.ResponseWriter, kind, msg string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "flash",
+		Value:    kind + ":" + msg,
+		Path:     "/",
+		MaxAge:   10,
+		HttpOnly: false,
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
 // Helpers

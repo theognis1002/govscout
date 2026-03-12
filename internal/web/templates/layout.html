@@ -27,6 +27,21 @@
 
 {{define "layout_foot"}}
 </div>
+<div id="toast-container"></div>
+<script>
+document.addEventListener("DOMContentLoaded",function(){
+  var m=document.cookie.split(";").map(function(c){return c.trim()}).find(function(c){return c.startsWith("flash=")});
+  if(!m)return;
+  document.cookie="flash=;path=/;max-age=0";
+  var v=decodeURIComponent(m.substring(6)),i=v.indexOf(":"),kind=v.substring(0,i),msg=v.substring(i+1);
+  var t=document.createElement("div");
+  t.className="toast toast-"+kind;
+  t.innerHTML='<span>'+msg+'</span><button class="toast-close">&times;</button>';
+  document.getElementById("toast-container").appendChild(t);
+  t.querySelector(".toast-close").onclick=function(){t.classList.add("toast-out");setTimeout(function(){t.remove()},300)};
+  setTimeout(function(){t.classList.add("toast-out");setTimeout(function(){t.remove()},300)},4000);
+});
+</script>
 </body>
 </html>
 {{end}}
