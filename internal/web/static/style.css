@@ -64,6 +64,7 @@ nav .btn-logout:hover{background:#333;color:#fff;border-color:#999;transform:non
 .alert-box{padding:.75rem 1rem;border:2px solid #1a1a1a;border-radius:4px;margin-bottom:1rem}
 .alert-error{background:#fecaca}
 .alert-success{background:#bbf7d0}
+.alert-info{background:#dbeafe;border-color:#93c5fd}
 
 table{width:100%;border-collapse:collapse;font-size:.9rem}
 th,td{text-align:left;padding:.5rem .75rem;border-bottom:1px solid #e5e5e5}

@@ -5,6 +5,10 @@
 <a href="/alerts/new" class="btn btn-primary">New Saved Search</a>
 </div>
 
+<div class="alert-box alert-info">
+<strong>How alerts work:</strong> Saved searches are checked after each sync run. When new matching opportunities are found, an email digest is sent to your configured address. Email notifications are rate-limited to one per saved search per 24 hours.
+</div>
+
 {{if .Searches}}
 <h2 style="font-size:1.1rem;margin-bottom:.75rem">Saved Searches</h2>
 {{range .Searches}}
