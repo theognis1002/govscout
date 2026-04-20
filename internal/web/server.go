@@ -1,13 +1,17 @@
 package web
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"html/template"
 	"log"
 	"net/http"
 	"os"
+	stdsync "sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -15,12 +19,15 @@ import (
 )
 
 type Server struct {
-	db      *sql.DB
-	tmpls   map[string]*template.Template
-	cookie  *securecookie.SecureCookie
-	router  chi.Router
-	syncing atomic.Bool
-	devMode bool
+	db       *sql.DB
+	tmpls    map[string]*template.Template
+	cookie   *securecookie.SecureCookie
+	router   chi.Router
+	syncing  atomic.Bool
+	devMode  bool
+	bgTasks  stdsync.WaitGroup
+	bgCtx    context.Context
+	bgCancel context.CancelFunc
 }
 
 func NewServer(db *sql.DB, opts ...ServerOption) *Server {
@@ -30,10 +37,13 @@ func NewServer(db *sql.DB, opts ...ServerOption) *Server {
 		secret = "dev-secret-change-me-in-production!!"
 	}
 
+	bgCtx, cancel := context.WithCancel(context.Background())
 	s := &Server{
-		db:     db,
-		tmpls:  loadTemplates(),
-		cookie: newSecureCookie(secret),
+		db:       db,
+		tmpls:    loadTemplates(),
+		cookie:   newSecureCookie(secret),
+		bgCtx:    bgCtx,
+		bgCancel: cancel,
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -135,7 +145,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.router.ServeHTTP(w, r)
 }
 
+// ListenAndServe starts the HTTP server. It blocks until the server stops.
+// Deprecated: prefer Run with an explicit context.
 func (s *Server) ListenAndServe(addr string) error {
+	return s.Run(context.Background(), addr)
+}
+
+// Run starts the HTTP server and shuts down cleanly when ctx is cancelled.
+// It waits (bounded) for in-flight requests and background goroutines.
+func (s *Server) Run(ctx context.Context, addr string) error {
 	if addr == "" {
 		port := os.Getenv("PORT")
 		if port == "" {
@@ -143,6 +161,52 @@ func (s *Server) ListenAndServe(addr string) error {
 		}
 		addr = fmt.Sprintf(":%s", port)
 	}
-	log.Printf("listening on %s", addr)
-	return http.ListenAndServe(addr, s)
+	httpSrv := &http.Server{
+		Addr:              addr,
+		Handler:           s,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
+
+	errCh := make(chan error, 1)
+	go func() {
+		log.Printf("listening on %s", addr)
+		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errCh <- err
+		}
+		close(errCh)
+	}()
+
+	select {
+	case <-ctx.Done():
+		log.Println("shutdown signal received, draining...")
+	case err := <-errCh:
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	// Cancel background goroutines (admin-triggered sync) so they stop promptly.
+	s.bgCancel()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	shutdownErr := httpSrv.Shutdown(shutdownCtx)
+
+	// Wait (bounded) for background tasks.
+	done := make(chan struct{})
+	go func() { s.bgTasks.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-shutdownCtx.Done():
+		log.Println("background tasks still running at shutdown deadline")
+	}
+
+	if shutdownErr != nil {
+		return fmt.Errorf("shutdown: %w", shutdownErr)
+	}
+	return nil
 }

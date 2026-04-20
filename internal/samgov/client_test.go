@@ -77,6 +77,7 @@ func TestClient_Search_RateLimitRotatesThroughAllKeysThenFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.baseURL = srv.URL
+	c.retryPolicy = RetryPolicy{MaxAttempts: 1}
 
 	_, err = c.Search(SearchParams{Limit: 10})
 	if !errors.Is(err, ErrRateLimited) {
@@ -112,6 +113,7 @@ func TestClient_Search_RateLimitSingleKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.baseURL = srv.URL
+	c.retryPolicy = RetryPolicy{MaxAttempts: 1}
 
 	_, err = c.Search(SearchParams{Limit: 10})
 	if !errors.Is(err, ErrRateLimited) {
@@ -227,6 +229,7 @@ func TestClient_Search_NonRateLimitErrorReturnsAPIError(t *testing.T) {
 
 	c, _ := NewClient("k1,k2")
 	c.baseURL = srv.URL
+	c.retryPolicy = RetryPolicy{MaxAttempts: 1}
 
 	_, err := c.Search(SearchParams{Limit: 1})
 	if err == nil {

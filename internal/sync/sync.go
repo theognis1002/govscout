@@ -1,7 +1,9 @@
 package sync
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -22,7 +24,22 @@ type Options struct {
 	From     string
 }
 
+// Run is a backwards-compatible wrapper for RunCtx.
 func Run(database *sql.DB, client *samgov.Client, opts Options) error {
+	return RunCtx(context.Background(), database, client, opts)
+}
+
+func RunCtx(ctx context.Context, database *sql.DB, client *samgov.Client, opts Options) (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err := fmt.Errorf("sync panic: %v", r)
+			log.Printf("PANIC in sync: %v", r)
+			msg := err.Error()
+			db.InsertSyncRun(database, "panic", "", "", 0, 0, false, &msg)
+			retErr = err
+		}
+	}()
+
 	if opts.MaxCalls <= 0 {
 		opts.MaxCalls = 18
 	}
@@ -37,7 +54,7 @@ func Run(database *sql.DB, client *samgov.Client, opts Options) error {
 	if opts.DryRun {
 		log.Printf("[dry-run] would fetch %s to %s", incrFrom, incrTo)
 	} else {
-		result, err := client.SearchWindow(incrFrom, incrTo, func(opps []map[string]any) error {
+		result, err := client.SearchWindowCtx(ctx, incrFrom, incrTo, func(opps []map[string]any) error {
 			for _, opp := range opps {
 				if err := db.UpsertOpportunityFromAPI(database, opp); err != nil {
 					log.Printf("upsert error: %v", err)
@@ -46,6 +63,11 @@ func Run(database *sql.DB, client *samgov.Client, opts Options) error {
 			return nil
 		})
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				errMsg := "cancelled: " + err.Error()
+				db.InsertSyncRun(database, "incremental", incrFrom, incrTo, 0, 0, false, &errMsg)
+				return err
+			}
 			errMsg := err.Error()
 			db.InsertSyncRun(database, "incremental", incrFrom, incrTo, 0, 0, false, &errMsg)
 			return fmt.Errorf("incremental sync: %w", err)
@@ -64,6 +86,7 @@ func Run(database *sql.DB, client *samgov.Client, opts Options) error {
 	remaining := opts.MaxCalls - apiCallsUsed
 	if remaining < 2 {
 		log.Println("no budget remaining for backfill")
+		checkpointLog(database)
 		return nil
 	}
 
@@ -82,6 +105,10 @@ func Run(database *sql.DB, client *samgov.Client, opts Options) error {
 	}
 
 	for apiCallsUsed+2 <= opts.MaxCalls {
+		if err := ctx.Err(); err != nil {
+			log.Printf("sync cancelled: %v", err)
+			return err
+		}
 		if backfillFloor != nil && !cursor.After(*backfillFloor) {
 			log.Printf("reached backfill floor %s", backfillFloor.Format(dateFmt))
 			break
@@ -101,7 +128,7 @@ func Run(database *sql.DB, client *samgov.Client, opts Options) error {
 			continue
 		}
 
-		result, err := client.SearchWindow(fromStr, toStr, func(opps []map[string]any) error {
+		result, err := client.SearchWindowCtx(ctx, fromStr, toStr, func(opps []map[string]any) error {
 			for _, opp := range opps {
 				if err := db.UpsertOpportunityFromAPI(database, opp); err != nil {
 					log.Printf("upsert error: %v", err)
@@ -110,6 +137,11 @@ func Run(database *sql.DB, client *samgov.Client, opts Options) error {
 			return nil
 		})
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				errMsg := "cancelled: " + err.Error()
+				db.InsertSyncRun(database, "backfill", fromStr, toStr, 0, 0, false, &errMsg)
+				return err
+			}
 			errMsg := err.Error()
 			db.InsertSyncRun(database, "backfill", fromStr, toStr, 0, 0, false, &errMsg)
 			return fmt.Errorf("backfill: %w", err)
@@ -129,7 +161,14 @@ func Run(database *sql.DB, client *samgov.Client, opts Options) error {
 	}
 
 	db.SetSyncState(database, "last_sync", today.Format(dateFmt))
+	checkpointLog(database)
 	return nil
+}
+
+func checkpointLog(database *sql.DB) {
+	if err := db.Checkpoint(database); err != nil {
+		log.Printf("wal checkpoint: %v", err)
+	}
 }
 
 func parseFlexibleDate(s string) (time.Time, error) {

@@ -1,6 +1,7 @@
 package alerts
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
@@ -10,7 +11,22 @@ import (
 	"github.com/theognis1002/govscout/internal/db"
 )
 
+// RunMatcher is a backwards-compatible wrapper for RunMatcherCtx.
 func RunMatcher(database *sql.DB) error {
+	return RunMatcherCtx(context.Background(), database)
+}
+
+func RunMatcherCtx(ctx context.Context, database *sql.DB) (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC in matcher: %v", r)
+			retErr = fmt.Errorf("matcher panic: %v", r)
+		}
+	}()
+
+	// Retry any previously-failed email deliveries before processing new alerts.
+	RetryFailedEmails(ctx, database)
+
 	rows, err := database.Query(`SELECT id, user_id, name, search_query, naics_code, opp_type,
 		set_aside, state, department, active_only, include_keywords, exclude_keywords,
 		match_all, notify_email, response_deadline, enabled
@@ -39,14 +55,27 @@ func RunMatcher(database *sql.DB) error {
 	}
 
 	for _, search := range searches {
-		if err := matchSearch(database, search); err != nil {
-			log.Printf("matcher error for search %d: %v", search.ID, err)
+		if err := ctx.Err(); err != nil {
+			return err
 		}
+		runOneSearch(ctx, database, search)
 	}
 	return nil
 }
 
-func matchSearch(database *sql.DB, search db.SavedSearchRow) error {
+// runOneSearch isolates per-search failures so one bad search cannot abort the run.
+func runOneSearch(ctx context.Context, database *sql.DB, search db.SavedSearchRow) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC matching search %d (%q): %v", search.ID, search.Name, r)
+		}
+	}()
+	if err := matchSearch(ctx, database, search); err != nil {
+		log.Printf("matcher error for search %d: %v", search.ID, err)
+	}
+}
+
+func matchSearch(ctx context.Context, database *sql.DB, search db.SavedSearchRow) error {
 	filters := buildFilters(search, 1000)
 
 	result, err := db.ListOpportunities(database, filters)
@@ -80,7 +109,7 @@ func matchSearch(database *sql.DB, search db.SavedSearchRow) error {
 
 	if alertCount > 0 {
 		log.Printf("search %q: %d new alerts", search.Name, alertCount)
-		deliverEmail(database, search)
+		deliverEmail(ctx, database, search)
 	}
 	return nil
 }

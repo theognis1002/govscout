@@ -536,13 +536,16 @@ func (s *Server) handleAdminSync(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	s.bgTasks.Add(1)
 	go func() {
+		defer s.bgTasks.Done()
 		defer s.syncing.Store(false)
-		if err := gosync.Run(s.db, client, gosync.Options{MaxCalls: maxCalls}); err != nil {
+		ctx := s.bgCtx
+		if err := gosync.RunCtx(ctx, s.db, client, gosync.Options{MaxCalls: maxCalls}); err != nil {
 			log.Printf("sync error: %v", err)
 			return
 		}
-		if err := alerts.RunMatcher(s.db); err != nil {
+		if err := alerts.RunMatcherCtx(ctx, s.db); err != nil {
 			log.Printf("alert matcher error: %v", err)
 		}
 	}()

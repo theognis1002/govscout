@@ -22,6 +22,9 @@ var migration003SQL string
 //go:embed migrations/004_delivery_unique.sql
 var migration004SQL string
 
+//go:embed migrations/005_delivery_status.sql
+var migration005SQL string
+
 func Open(path string) (*sql.DB, error) {
 	if path == "" {
 		path = os.Getenv("GOVSCOUT_DB")
@@ -30,7 +33,7 @@ func Open(path string) (*sql.DB, error) {
 		path = "./govscout.db"
 	}
 
-	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+	dsn := path + "?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(30000)"
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
@@ -65,7 +68,22 @@ func Open(path string) (*sql.DB, error) {
 		}
 	}
 
+	if _, err := db.Exec(migration005SQL); err != nil {
+		if !isDuplicateColumn(err) {
+			db.Close()
+			return nil, fmt.Errorf("migrate 005: %w", err)
+		}
+	}
+
 	return db, nil
+}
+
+// Checkpoint runs a WAL truncate checkpoint. Safe to call while other writes
+// are in flight; on busy DB it returns the attempted-checkpoint result, not an
+// error.
+func Checkpoint(database *sql.DB) error {
+	_, err := database.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
+	return err
 }
 
 func isDuplicateColumn(err error) bool {

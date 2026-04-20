@@ -1,12 +1,37 @@
 package alerts
 
 import (
+	"context"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/theognis1002/govscout/internal/db"
 )
+
+func TestRunOneSearch_RecoversPanic(t *testing.T) {
+	// A nil *sql.DB makes matchSearch panic (nil pointer in db.ListOpportunities).
+	// The deferred recover in runOneSearch must contain the panic.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("panic escaped runOneSearch: %v", r)
+		}
+	}()
+	runOneSearch(context.Background(), nil, db.SavedSearchRow{ID: 1, Name: "x"})
+}
+
+func TestRunMatcher_PanicRecoverReturnsError(t *testing.T) {
+	// Passing nil *sql.DB into RunMatcherCtx panics in the initial Query call.
+	// Deferred recover must convert it into a returned error, not a process crash.
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("panic escaped RunMatcherCtx: %v", r)
+		}
+	}()
+	if err := RunMatcherCtx(context.Background(), nil); err == nil {
+		t.Fatal("expected error from panicking matcher")
+	}
+}
 
 func TestParseKeywords(t *testing.T) {
 	tests := []struct {

@@ -2,13 +2,17 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"database/sql"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"os/signal"
 	"strings"
+	"syscall"
 
+	"github.com/resend/resend-go/v3"
 	"github.com/theognis1002/govscout/internal/alerts"
 	"github.com/theognis1002/govscout/internal/db"
 	"github.com/theognis1002/govscout/internal/samgov"
@@ -58,6 +62,8 @@ func main() {
 		cmdUserAdd(os.Args[2:])
 	case "passwd":
 		cmdPasswd(os.Args[2:])
+	case "testemail":
+		cmdTestEmail(os.Args[2:])
 	case "migrate":
 		cmdMigrate(os.Args[2:])
 	default:
@@ -75,6 +81,7 @@ Commands:
   export    Export opportunities to CSV
   useradd   Create a new user
   passwd    Update a user's password
+  testemail Send a test email via Resend to TEST_EMAIL_TO
   migrate   Import data from old (Rust) DB
 
 `)
@@ -93,10 +100,14 @@ func cmdServe(args []string) {
 	}
 	defer database.Close()
 
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	srv := web.NewServer(database, web.WithDevMode(*dev))
-	if err := srv.ListenAndServe(*addr); err != nil {
+	if err := srv.Run(ctx, *addr); err != nil {
 		log.Fatal(err)
 	}
+	log.Println("server shut down cleanly")
 }
 
 func cmdSync(args []string) {
@@ -119,16 +130,21 @@ func cmdSync(args []string) {
 		log.Fatal(err)
 	}
 
-	if err := gosync.Run(database, client, gosync.Options{
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := gosync.RunCtx(ctx, database, client, gosync.Options{
 		MaxCalls: *maxCalls,
 		DryRun:   *dryRun,
 		From:     *from,
 	}); err != nil {
-		log.Fatal(err)
+		log.Printf("sync error: %v", err)
+		os.Exit(1)
 	}
 
 	if !*dryRun {
-		if err := alerts.RunMatcher(database); err != nil {
+		if err := alerts.RunMatcherCtx(ctx, database); err != nil {
+			// Alert errors are non-fatal: the sync itself succeeded.
 			log.Printf("alert matcher error: %v", err)
 		}
 	}
@@ -251,6 +267,42 @@ func cmdPasswd(args []string) {
 		log.Fatal(err)
 	}
 	fmt.Printf("updated password for user: %s\n", *username)
+}
+
+func cmdTestEmail(args []string) {
+	fs := flag.NewFlagSet("testemail", flag.ExitOnError)
+	to := fs.String("to", "", "Recipient email (overrides TEST_EMAIL_TO)")
+	fs.Parse(args)
+
+	recipient := *to
+	if recipient == "" {
+		recipient = os.Getenv("TEST_EMAIL_TO")
+	}
+	if recipient == "" {
+		log.Fatal("no recipient: set TEST_EMAIL_TO or pass --to")
+	}
+
+	apiKey := os.Getenv("RESEND_API_KEY")
+	if apiKey == "" {
+		log.Fatal("RESEND_API_KEY not set")
+	}
+
+	fromEmail := os.Getenv("RESEND_FROM_EMAIL")
+	if fromEmail == "" {
+		fromEmail = "GovScout <alerts@resend.dev>"
+	}
+
+	client := resend.NewClient(apiKey)
+	sent, err := client.Emails.Send(&resend.SendEmailRequest{
+		From:    fromEmail,
+		To:      []string{recipient},
+		Subject: "GovScout test email",
+		Html:    "<p>This is a test email from GovScout. If you received this, Resend is configured correctly.</p>",
+	})
+	if err != nil {
+		log.Fatalf("send test email: %v", err)
+	}
+	fmt.Printf("sent: %s\n", sent.Id)
 }
 
 func cmdMigrate(args []string) {
