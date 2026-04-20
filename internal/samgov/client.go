@@ -18,6 +18,7 @@ type Client struct {
 	keys    []string
 	current atomic.Int64
 	http    *http.Client
+	baseURL string
 }
 
 func NewClient(apiKeyEnv string) (*Client, error) {
@@ -35,8 +36,9 @@ func NewClient(apiKeyEnv string) (*Client, error) {
 		return nil, errors.New("no valid API keys found")
 	}
 	return &Client{
-		keys: keys,
-		http: &http.Client{Timeout: 30 * time.Second},
+		keys:    keys,
+		http:    &http.Client{Timeout: 30 * time.Second},
+		baseURL: "https://api.sam.gov/opportunities/v2/search",
 	}, nil
 }
 
@@ -53,7 +55,7 @@ func (c *Client) Search(params SearchParams) (*APIResponse, error) {
 	startIdx := c.current.Load()
 
 	for {
-		u, _ := url.Parse("https://api.sam.gov/opportunities/v2/search")
+		u, _ := url.Parse(c.baseURL)
 		q := u.Query()
 		q.Set("api_key", c.currentKey())
 		q.Set("limit", fmt.Sprintf("%d", params.Limit))
