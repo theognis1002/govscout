@@ -69,6 +69,8 @@ go build ./cmd/govscout                        # Build binary
 ./govscout sync --from 01/01/2015              # Backfill toward a specific date
 ./govscout useradd --username admin --password secret --admin  # Create admin user
 ./govscout passwd --username admin --password newpass          # Update user password
+./govscout testemail                                           # Send Resend test email to TEST_EMAIL_TO
+./govscout testemail --to you@example.com                      # Override recipient
 ```
 
 ## Routes
@@ -122,6 +124,7 @@ See `.env.example`:
 - `PORT` — Web server port (default: `8080`)
 - `RESEND_API_KEY` — Resend API key for email alert delivery (optional)
 - `RESEND_FROM_EMAIL` — Sender address for alert emails (default: `GovScout <alerts@resend.dev>`)
+- `TEST_EMAIL_TO` — Recipient for `govscout testemail` (can be overridden with `--to`)
 
 ## API Details
 

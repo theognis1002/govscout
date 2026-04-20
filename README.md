@@ -71,6 +71,10 @@ go run ./cmd/govscout useradd --username alice --password changeme
 # Create an admin user
 go run ./cmd/govscout useradd --username admin --password secret --admin
 
+# Send a test email via Resend (uses TEST_EMAIL_TO or --to)
+go run ./cmd/govscout testemail
+go run ./cmd/govscout testemail --to someone@example.com
+
 # Migrate data from old (Rust) DB
 go run ./cmd/govscout migrate --old ./govscout.db.old
 ```
@@ -117,6 +121,7 @@ internal/
 | `PORT`              | No               | Web server port (default: `8080`)                           |
 | `RESEND_API_KEY`    | No               | Resend API key for email alert delivery                     |
 | `RESEND_FROM_EMAIL` | No               | Sender address for alert emails (default: `GovScout <alerts@resend.dev>`) |
+| `TEST_EMAIL_TO`     | No               | Recipient for `govscout testemail`                          |
 | `ALERT_WEBHOOK_URL` | No               | Default webhook URL for alert delivery                      |
 
 See [.env.example](.env.example) for the template.
