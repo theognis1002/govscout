@@ -2,8 +2,6 @@ package db
 
 import (
 	"database/sql"
-	"fmt"
-	"strings"
 	"time"
 )
 
@@ -16,11 +14,11 @@ type AlertRow struct {
 
 type AlertWithOpp struct {
 	AlertRow
-	OppTitle    *string
-	OppType     *string
-	PostedDate  *string
-	Department  *string
-	SearchName  string
+	OppTitle   *string
+	OppType    *string
+	PostedDate *string
+	Department *string
+	SearchName string
 }
 
 type DeliveryRow struct {
@@ -109,41 +107,6 @@ func ListAlertsForUser(db *sql.DB, userID int64, limit, offset int) ([]AlertWith
 func InsertDelivery(db *sql.DB, alertID int64, channel string, statusCode *int, errMsg *string) error {
 	_, err := db.Exec("INSERT OR IGNORE INTO deliveries (alert_id, webhook_url, status_code, error_message) VALUES (?,?,?,?)",
 		alertID, channel, statusCode, errMsg)
-	return err
-}
-
-func UpdateDeliveryStatus(database *sql.DB, alertIDs []int64, channel string, statusCode int) error {
-	if len(alertIDs) == 0 {
-		return nil
-	}
-	placeholders := make([]string, len(alertIDs))
-	args := make([]interface{}, 0, len(alertIDs)+2)
-	args = append(args, statusCode)
-	for i, id := range alertIDs {
-		placeholders[i] = "?"
-		args = append(args, id)
-	}
-	args = append(args, channel)
-	query := fmt.Sprintf("UPDATE deliveries SET status_code = ? WHERE alert_id IN (%s) AND webhook_url = ?",
-		strings.Join(placeholders, ","))
-	_, err := database.Exec(query, args...)
-	return err
-}
-
-func DeleteDeliveriesByAlertIDs(database *sql.DB, alertIDs []int64, channel string) error {
-	if len(alertIDs) == 0 {
-		return nil
-	}
-	placeholders := make([]string, len(alertIDs))
-	args := make([]interface{}, 0, len(alertIDs)+1)
-	for i, id := range alertIDs {
-		placeholders[i] = "?"
-		args = append(args, id)
-	}
-	args = append(args, channel)
-	query := fmt.Sprintf("DELETE FROM deliveries WHERE alert_id IN (%s) AND webhook_url = ?",
-		strings.Join(placeholders, ","))
-	_, err := database.Exec(query, args...)
 	return err
 }
 

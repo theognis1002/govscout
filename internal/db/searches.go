@@ -3,24 +3,24 @@ package db
 import "database/sql"
 
 type SavedSearchRow struct {
-	ID              int64
-	UserID          int64
-	Name            string
-	SearchQuery     *string
-	NAICSCode       *string
-	OppType         *string
-	SetAside        *string
-	State           *string
-	Department      *string
-	ActiveOnly      bool
-	IncludeKeywords *string
-	ExcludeKeywords *string
+	ID               int64
+	UserID           int64
+	Name             string
+	SearchQuery      *string
+	NAICSCode        *string
+	OppType          *string
+	SetAside         *string
+	State            *string
+	Department       *string
+	ActiveOnly       bool
+	IncludeKeywords  *string
+	ExcludeKeywords  *string
 	MatchAll         bool
 	NotifyEmail      *string
 	ResponseDeadline *string
 	Enabled          bool
-	CreatedAt       string
-	ModifiedAt      string
+	CreatedAt        string
+	ModifiedAt       string
 }
 
 func CreateSavedSearch(db *sql.DB, s *SavedSearchRow) (int64, error) {

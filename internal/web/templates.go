@@ -74,11 +74,11 @@ var funcMap = template.FuncMap{
 		}
 		return false
 	},
-	"stripHTML":     stripHTML,
-	"naicsLabel":    naicsLabel,
-	"setAsideDesc":  setAsideDesc,
-	"oppTypeDesc":   oppTypeDesc,
-	"boolChecked":  func(b bool) template.HTMLAttr {
+	"stripHTML":    stripHTML,
+	"naicsLabel":   naicsLabel,
+	"setAsideDesc": setAsideDesc,
+	"oppTypeDesc":  oppTypeDesc,
+	"boolChecked": func(b bool) template.HTMLAttr {
 		if b {
 			return "checked"
 		}

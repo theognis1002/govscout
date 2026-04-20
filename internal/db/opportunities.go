@@ -92,7 +92,7 @@ type FilterStat struct {
 
 type Stats struct {
 	Total       int64
-	NAICSCodes   []FilterStat
+	NAICSCodes  []FilterStat
 	OppTypes    []FilterStat
 	SetAsides   []FilterStat
 	States      []FilterStat

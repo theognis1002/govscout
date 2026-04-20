@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/theognis1002/govscout/internal/db"
 	"github.com/resend/resend-go/v3"
+	"github.com/theognis1002/govscout/internal/db"
 )
 
 func deliverEmail(database *sql.DB, search db.SavedSearchRow) {
@@ -101,28 +101,17 @@ func deliverEmail(database *sql.DB, search db.SavedSearchRow) {
 		Html:    body.String(),
 	}
 
-	// Mark deliveries as in-flight (status_code = NULL) before sending
-	alertIDs := make([]int64, len(undelivered))
-	for i, a := range undelivered {
-		alertIDs[i] = a.ID
-		if err := db.InsertDelivery(database, a.ID, "email", nil, nil); err != nil {
-			log.Printf("mark in-flight delivery for alert %d: %v", a.ID, err)
-			return
-		}
-	}
-
 	sent, err := client.Emails.Send(params)
 	if err != nil {
 		log.Printf("send email for search %d: %v", search.ID, err)
-		// Remove in-flight records so they're retried next run
-		if delErr := db.DeleteDeliveriesByAlertIDs(database, alertIDs, "email"); delErr != nil {
-			log.Printf("cleanup in-flight deliveries for search %d: %v", search.ID, delErr)
-		}
 		return
 	}
 
 	log.Printf("email sent for search %d: %s (%d alerts)", search.ID, sent.Id, len(undelivered))
-	if err := db.UpdateDeliveryStatus(database, alertIDs, "email", 200); err != nil {
-		log.Printf("update delivery status for search %d: %v", search.ID, err)
+	status := 200
+	for _, a := range undelivered {
+		if err := db.InsertDelivery(database, a.ID, "email", &status, nil); err != nil {
+			log.Printf("record delivery for alert %d: %v", a.ID, err)
+		}
 	}
 }

@@ -12,8 +12,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/theognis1002/govscout/internal/alerts"
 	"github.com/theognis1002/govscout/internal/db"
-	gosync "github.com/theognis1002/govscout/internal/sync"
 	"github.com/theognis1002/govscout/internal/samgov"
+	gosync "github.com/theognis1002/govscout/internal/sync"
 )
 
 // Auth handlers
@@ -515,6 +515,14 @@ func (s *Server) handleFilterDelete(w http.ResponseWriter, r *http.Request) {
 // Admin handlers
 
 func (s *Server) handleAdminSync(w http.ResponseWriter, r *http.Request) {
+	apiKey := os.Getenv("SAMGOV_API_KEY")
+	client, err := samgov.NewClient(apiKey)
+	if err != nil {
+		setFlash(w, "error", fmt.Sprintf("Cannot start sync: %v", err))
+		http.Redirect(w, r, "/admin/sync-runs", http.StatusFound)
+		return
+	}
+
 	if !s.syncing.CompareAndSwap(false, true) {
 		setFlash(w, "error", "Sync already in progress")
 		http.Redirect(w, r, "/admin/sync-runs", http.StatusFound)
@@ -530,17 +538,13 @@ func (s *Server) handleAdminSync(w http.ResponseWriter, r *http.Request) {
 
 	go func() {
 		defer s.syncing.Store(false)
-		apiKey := os.Getenv("SAMGOV_API_KEY")
-		client, err := samgov.NewClient(apiKey)
-		if err != nil {
-			log.Printf("sync error: %v", err)
-			return
-		}
 		if err := gosync.Run(s.db, client, gosync.Options{MaxCalls: maxCalls}); err != nil {
 			log.Printf("sync error: %v", err)
 			return
 		}
-		alerts.RunMatcher(s.db)
+		if err := alerts.RunMatcher(s.db); err != nil {
+			log.Printf("alert matcher error: %v", err)
+		}
 	}()
 	setFlash(w, "success", "Sync started")
 	http.Redirect(w, r, "/admin/sync-runs", http.StatusFound)
