@@ -38,6 +38,18 @@ Minimum:
 
 GovScout, Caddy, and Litestream together idle well under 150 MB RAM.
 
+**On a 1 GB box, add 2 GB of swap before building on the VPS** — `go build` alone can push the box into OOM-kill territory, and the same is true of any other Node/Bun-bundled installers you might later run there:
+
+```bash
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+sudo sysctl vm.swappiness=10
+echo 'vm.swappiness=10' | sudo tee /etc/sysctl.d/99-swap.conf
+```
+
 ---
 
 ## 3. DNS — CNAME setup
@@ -118,13 +130,22 @@ scp govscout-linux-amd64 deploy@alert.example.com:/tmp/govscout
 
 ### Option B — build on the VPS
 
+Ubuntu 24.04's `apt` Go is 1.22, which is too old. Grab Go 1.23+ from go.dev:
+
 ```bash
 # On the VPS
-sudo apt install -y golang-go     # or install Go 1.23+ from https://go.dev/dl/
-git clone https://github.com/YOUR_ORG/govscout.git /tmp/govscout-src
+curl -sLO https://go.dev/dl/go1.23.4.linux-amd64.tar.gz
+sudo rm -rf /usr/local/go
+sudo tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz
+sudo ln -sf /usr/local/go/bin/go /usr/local/bin/go
+
+sudo apt install -y git
+git clone https://github.com/theognis1002/govscout /tmp/govscout-src
 cd /tmp/govscout-src
 CGO_ENABLED=0 go build -o /tmp/govscout ./cmd/govscout
 ```
+
+You'll want the 2 GB swap from §2 before this step on a 1 GB box.
 
 ---
 
@@ -148,10 +169,19 @@ GOVSCOUT_DB=/opt/govscout/govscout.db
 PORT=8080
 RESEND_API_KEY=your_resend_key_here
 RESEND_FROM_EMAIL=GovScout <alerts@yourdomain.com>
+TEST_EMAIL_TO=you@example.com
 EOF
 
 sudo chown -R govscout:govscout /opt/govscout
 sudo chmod 600 /opt/govscout/.env
+```
+
+Running CLI commands (e.g. `useradd`, `testemail`) manually: the binary loads `.env` from its working directory, so always `cd /opt/govscout` first:
+
+```bash
+cd /opt/govscout
+sudo -u govscout /opt/govscout/govscout useradd --username admin@example.com --password 'CHANGE_ME' --admin
+sudo -u govscout /opt/govscout/govscout testemail
 ```
 
 Copy the repo's systemd files to `/etc/systemd/system/` (see next section) before starting.
@@ -186,11 +216,14 @@ curl -sf http://127.0.0.1:8080/health && echo OK
 ## 8. Create the first admin user
 
 ```bash
+cd /opt/govscout
 sudo -u govscout /opt/govscout/govscout useradd \
-  --username admin \
+  --username admin@example.com \
   --password 'CHANGE_ME_STRONG' \
   --admin
 ```
+
+The `cd /opt/govscout` matters — the binary loads `.env` (for `GOVSCOUT_DB`) from its working directory.
 
 ---
 
@@ -208,6 +241,9 @@ sudo apt install -y caddy
 ### Caddyfile
 
 ```bash
+sudo mkdir -p /var/log/caddy
+sudo chown -R caddy:caddy /var/log/caddy
+
 sudo tee /etc/caddy/Caddyfile >/dev/null <<'EOF'
 alert.example.com {
     encode zstd gzip
@@ -219,8 +255,11 @@ alert.example.com {
 }
 EOF
 
+sudo caddy validate --config /etc/caddy/Caddyfile
 sudo systemctl reload caddy
 ```
+
+`/var/log/caddy` must exist and be writable by the `caddy` user before reload, or the `log` directive will fail with a permission error on startup.
 
 Caddy will fetch a Let's Encrypt cert within seconds once DNS points at the box. Watch it happen:
 
