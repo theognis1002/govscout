@@ -1,6 +1,8 @@
 # GovScout VPS Deployment Runbook
 
-End-to-end guide for deploying GovScout to a single Linux VPS. Target audience: internal use by a few users. Covers build, systemd, HTTPS via Caddy (CNAME-friendly), continuous SQLite backups with Litestream, upgrades, and day-2 ops.
+End-to-end guide for deploying GovScout to a single Linux VPS. Target audience: internal use by a few users. Covers build, systemd, HTTPS via Caddy (CNAME-friendly), upgrades, and day-2 ops.
+
+For backups, enable your provider's daily snapshot feature (DigitalOcean: ~20% of droplet cost). The opportunities table is re-derivable by running `./govscout sync` against SAM.gov; the only unique data is users, saved searches, and alert history — small enough that daily snapshots are sufficient for this scale.
 
 ---
 
@@ -14,16 +16,10 @@ End-to-end guide for deploying GovScout to a single Linux VPS. Target audience: 
                   │                           ▼           │
                   │                    /opt/govscout/     │
                   │                    govscout.db (WAL)  │
-                  │                           │           │
-                  │                    Litestream (sidecar)
-                  │                           │           │
-                  └───────────────────────────┼───────────┘
-                                              ▼
-                                     S3-compatible bucket
-                                     (continuous replication)
+                  └───────────────────────────────────────┘
 ```
 
-One binary, SQLite on local disk, Caddy terminates TLS, Litestream streams DB changes to object storage. Daily sync runs via systemd timer.
+One binary, SQLite on local disk, Caddy terminates TLS. Daily sync runs via systemd timer.
 
 ---
 
@@ -36,7 +32,7 @@ Minimum:
 - 25 GB SSD
 - Ubuntu 24.04 LTS (or Debian 12)
 
-GovScout, Caddy, and Litestream together idle well under 150 MB RAM.
+GovScout and Caddy together idle well under 100 MB RAM.
 
 **On a 1 GB box, add 2 GB of swap before building on the VPS** — `go build` alone can push the box into OOM-kill territory, and the same is true of any other Node/Bun-bundled installers you might later run there:
 
@@ -275,106 +271,21 @@ curl -I https://alert.example.com/health
 
 ---
 
-## 10. Litestream — continuous SQLite backups
+## 10. Backups
 
-Litestream streams every write from `govscout.db` to object storage. You get point-in-time recovery with RPO measured in seconds.
+Enable **DigitalOcean droplet backups** (or your provider's equivalent) from the control panel. That's the entire backup strategy for this deployment:
 
-### Install
+- Daily whole-disk snapshots, 4-week retention on DO.
+- Covers `govscout.db`, `.env`, systemd units — everything.
+- Restoring is a one-click "Rebuild from backup" in the control panel.
 
-```bash
-LITESTREAM_VERSION=0.3.13
-curl -L "https://github.com/benbjohnson/litestream/releases/download/v${LITESTREAM_VERSION}/litestream-v${LITESTREAM_VERSION}-linux-amd64.deb" -o /tmp/litestream.deb
-sudo dpkg -i /tmp/litestream.deb
-```
+The opportunities table is re-derivable from SAM.gov via `./govscout sync`, so losing up to 24h of writes on the critical tables (users, saved searches, alerts) is an acceptable RPO at this scale.
 
-### Config
-
-Using an S3-compatible bucket (Cloudflare R2, Backblaze B2, AWS S3 — pick any). Create a bucket named e.g. `govscout-backup` and an access key scoped to it.
-
-```bash
-sudo tee /etc/litestream.yml >/dev/null <<'EOF'
-dbs:
-  - path: /opt/govscout/govscout.db
-    replicas:
-      - type: s3
-        bucket: govscout-backup
-        path: govscout.db
-        endpoint: https://<accountid>.r2.cloudflarestorage.com   # or s3.us-west-002.backblazeb2.com, etc.
-        region: auto
-        access-key-id: ${LITESTREAM_ACCESS_KEY_ID}
-        secret-access-key: ${LITESTREAM_SECRET_ACCESS_KEY}
-EOF
-sudo chmod 600 /etc/litestream.yml
-```
-
-Credentials go in an environment file so they're not in the YAML:
-
-```bash
-sudo tee /etc/default/litestream >/dev/null <<'EOF'
-LITESTREAM_ACCESS_KEY_ID=xxx
-LITESTREAM_SECRET_ACCESS_KEY=yyy
-EOF
-sudo chmod 600 /etc/default/litestream
-```
-
-The Debian package installs a systemd unit. Point it at the env file:
-
-```bash
-sudo systemctl edit litestream
-```
-
-Add:
-
-```ini
-[Service]
-EnvironmentFile=/etc/default/litestream
-```
-
-Then:
-
-```bash
-sudo systemctl enable --now litestream
-sudo systemctl status litestream
-```
-
-Verify backup is live (wait ~30s after a write):
-
-```bash
-litestream snapshots -config /etc/litestream.yml /opt/govscout/govscout.db
-```
+If you later need tighter RPO (seconds, not hours), add Litestream streaming to S3/R2. For 3–4 internal users, provider snapshots are sufficient.
 
 ---
 
-## 11. Backup restore drill
-
-**Do this once, before you need it.** Spin up a scratch directory:
-
-```bash
-sudo systemctl stop govscout
-sudo -u govscout litestream restore \
-  -config /etc/litestream.yml \
-  -o /tmp/restored.db \
-  /opt/govscout/govscout.db
-
-# Compare row counts as a sanity check
-sqlite3 /opt/govscout/govscout.db 'select count(*) from opportunities;'
-sqlite3 /tmp/restored.db           'select count(*) from opportunities;'
-
-sudo systemctl start govscout
-```
-
-To do a real recovery after data loss:
-
-```bash
-sudo systemctl stop govscout
-sudo mv /opt/govscout/govscout.db /opt/govscout/govscout.db.broken
-sudo -u govscout litestream restore -config /etc/litestream.yml /opt/govscout/govscout.db
-sudo systemctl start govscout
-```
-
----
-
-## 12. Upgrades
+## 11. Upgrades
 
 Zero-surprise upgrade path:
 
@@ -403,7 +314,7 @@ Downtime: ~1 second.
 
 ---
 
-## 13. Logs & observability
+## 12. Logs & observability
 
 ```bash
 # App
@@ -414,9 +325,6 @@ journalctl -u govscout-sync.service -n 200 --no-pager
 journalctl -u caddy -f
 tail -f /var/log/caddy/alert.log
 
-# Litestream
-journalctl -u litestream -f
-
 # Timer firing history
 systemctl list-timers govscout-sync.timer
 
@@ -426,7 +334,7 @@ sudo systemctl start govscout-sync.service
 
 ---
 
-## 14. Health check
+## 13. Health check
 
 ```bash
 curl -sf https://alert.example.com/health && echo OK
@@ -436,7 +344,7 @@ Wire this into any external uptime monitor (UptimeRobot, Betterstack free tier, 
 
 ---
 
-## 15. Troubleshooting
+## 14. Troubleshooting
 
 **Caddy can't get a certificate**
 
@@ -459,40 +367,31 @@ Wire this into any external uptime monitor (UptimeRobot, Betterstack free tier, 
 
 - Shouldn't happen with WAL + single writer, but if it does: `sudo systemctl restart govscout` and check the journal. Never delete `govscout.db-wal` or `govscout.db-shm` while the app is running.
 
-**Litestream shows no snapshots**
-
-- `systemctl status litestream` — running?
-- Check credentials in `/etc/default/litestream`.
-- `litestream replicas -config /etc/litestream.yml` should show the replica.
-
 ---
 
-## 16. Security checklist
+## 15. Security checklist
 
 - [ ] Root SSH login disabled, password auth off
 - [ ] UFW enabled, only 22/80/443 open
 - [ ] `unattended-upgrades` enabled
 - [ ] `AUTH_SECRET` is 32+ random chars (via `openssl rand -hex 32`)
 - [ ] `/opt/govscout/.env` is `chmod 600`, owned by `govscout`
-- [ ] `/etc/default/litestream` is `chmod 600`
 - [ ] `govscout.db` is not in a web-served directory (it isn't — it's in `/opt/govscout`)
 - [ ] First admin password rotated from any placeholder
-- [ ] Backups verified with a real restore drill (section 11)
+- [ ] Provider daily backups enabled (DigitalOcean → droplet → Backups)
 - [ ] HTTPS confirmed via `curl -I https://alert.example.com/health`
 
 ---
 
-## 17. Quick reference — all paths
+## 16. Quick reference — all paths
 
-| Thing                  | Path                                       |
-| ---------------------- | ------------------------------------------ |
-| Binary                 | `/opt/govscout/govscout`                   |
-| Env file               | `/opt/govscout/.env`                       |
-| Database               | `/opt/govscout/govscout.db`                |
-| Web systemd unit       | `/etc/systemd/system/govscout.service`     |
-| Sync systemd unit      | `/etc/systemd/system/govscout-sync.service`|
-| Sync timer             | `/etc/systemd/system/govscout-sync.timer`  |
-| Caddy config           | `/etc/caddy/Caddyfile`                     |
-| Litestream config      | `/etc/litestream.yml`                      |
-| Litestream credentials | `/etc/default/litestream`                  |
-| Caddy logs             | `/var/log/caddy/alert.log`                 |
+| Thing             | Path                                        |
+| ----------------- | ------------------------------------------- |
+| Binary            | `/opt/govscout/govscout`                    |
+| Env file          | `/opt/govscout/.env`                        |
+| Database          | `/opt/govscout/govscout.db`                 |
+| Web systemd unit  | `/etc/systemd/system/govscout.service`      |
+| Sync systemd unit | `/etc/systemd/system/govscout-sync.service` |
+| Sync timer        | `/etc/systemd/system/govscout-sync.timer`   |
+| Caddy config      | `/etc/caddy/Caddyfile`                      |
+| Caddy logs        | `/var/log/caddy/alert.log`                  |
