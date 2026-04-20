@@ -6,7 +6,7 @@ Web app that syncs federal contract opportunities from the SAM.gov API v2 and se
 
 ## Tech Stack
 
-- Language: Go 1.23+
+- Language: Go 1.25+
 - Router: chi/v5
 - Database: SQLite via modernc.org/sqlite (pure Go, no CGO)
 - Templates: html/template + HTMX
@@ -17,7 +17,7 @@ Web app that syncs federal contract opportunities from the SAM.gov API v2 and se
 ## Architecture
 
 ```
-cmd/govscout/main.go              # CLI: serve | sync | useradd
+cmd/govscout/main.go              # CLI: serve | sync | export | useradd | passwd | migrate
 internal/
 ├── db/
 │   ├── db.go                     # Open (DSN pragmas, WAL), migrate
@@ -41,6 +41,7 @@ internal/
     ├── handlers.go               # All HTTP handlers
     ├── templates.go              # go:embed template loading + funcMap
     ├── auth.go                   # securecookie sessions, RequireAuth/RequireAdmin middleware
+    ├── labels.go                 # Display label lookups for filter values
     ├── static/style.css          # Minimal CSS (embedded)
     └── templates/                # All HTML templates (embedded)
         ├── layout.html
@@ -67,8 +68,10 @@ go build ./cmd/govscout                        # Build binary
 ./govscout sync --dry-run                      # Preview what would be fetched
 ./govscout sync --max-calls 5                  # Limit API calls for this run
 ./govscout sync --from 01/01/2015              # Backfill toward a specific date
+./govscout export --search "cyber" --out ops.csv               # Export opportunities to CSV (flags: --search, --naics, --type, --set-aside, --state, --department, --active-only, --out)
 ./govscout useradd --username admin --password secret --admin  # Create admin user
 ./govscout passwd --username admin --password newpass          # Update user password
+./govscout migrate --old ./govscout.db.old                     # Import data from old (Rust) DB
 ```
 
 ## Routes
@@ -80,6 +83,7 @@ Auth required:
 - `GET /opportunities` — full page with sidebar filters + HTMX
 - `GET /opportunities/partial` — HTMX partial (results fragment)
 - `GET /opportunities/{id}` — detail view
+- `GET /opportunities/export.csv` — CSV export of current filter
 - `GET /alerts` — saved search list + recent alerts
 - `GET /alerts/new`, `POST /alerts` — create saved search
 - `GET /alerts/{id}`, `POST /alerts/{id}` — view/update saved search
